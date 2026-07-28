@@ -1,7 +1,4 @@
-#![allow(dead_code, unused_imports)] // SCAFFOLD — temporary until run event streaming
-
 use rusqlite::{params, Connection, OptionalExtension};
-use tracing::info;
 
 use crate::db::ids;
 

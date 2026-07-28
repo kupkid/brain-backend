@@ -14,7 +14,7 @@ use crate::memory::{
     MemoryRepository, MemoryRetriever, MemoryIngestion, IngestParams,
     check_content, validate_layer_for_project,
 };
-use crate::run::RunRepository;
+use crate::run::{RunRepository, ToolRepository, RunContextRepository, EventStore};
 use crate::project::ProjectRepository;
 
 pub struct AppState {
@@ -34,6 +34,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/v1/runs", get(list_runs).post(create_run))
         .route("/v1/runs/:id", get(get_run))
         .route("/v1/runs/:id/transition", post(transition_run))
+        .route("/v1/runs/:id/events", get(list_run_events).post(append_run_event))
+        .route("/v1/runs/:id/tools", get(list_run_tools))
+        .route("/v1/runs/:id/tools/stats", get(run_tools_stats))
+        .route("/v1/runs/:id/context", get(list_run_context).put(upsert_run_context))
+        .route("/v1/runs/:id/context/:slot", get(get_context_slot).delete(delete_context_slot))
         // Memories
         .route("/v1/memories", get(list_memories).post(create_memory))
         .route("/v1/memories/search", post(search_memories))
@@ -222,13 +227,196 @@ async fn transition_run(
 ) -> impl IntoResponse {
     let conn = state.conn.lock().unwrap();
     let repo = RunRepository::new(&conn);
-    let status = match crate::run::state::RunStatus::from_str(&req.to_status) {
+    let status = match crate::run::state::RunStatus::parse_status(&req.to_status) {
         Some(s) => s,
         None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid status"}))).into_response(),
     };
     match repo.transition(id, status, req.reason.as_deref(), req.summary.as_deref(), req.error_message.as_deref()) {
         Ok(()) => StatusCode::OK.into_response(),
         Err(_e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "transition failed"}))).into_response(),
+    }
+}
+
+// === Run Events ===
+
+#[derive(Deserialize)]
+struct AppendEventRequest {
+    event_type: String,
+    payload: Option<String>,
+}
+
+#[derive(Serialize)]
+struct EventResponse {
+    id: i64,
+    seq: i64,
+    event_type: String,
+    payload: String,
+    created_at: String,
+}
+
+async fn list_run_events(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let store = EventStore::new(&conn);
+    match store.get_events(id) {
+        Ok(events) => {
+            let responses: Vec<EventResponse> = events.into_iter().map(|e| EventResponse {
+                id: e.id,
+                seq: e.seq,
+                event_type: e.event_type,
+                payload: e.payload,
+                created_at: e.created_at,
+            }).collect();
+            Json(serde_json::json!(responses)).into_response()
+        }
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+    }
+}
+
+async fn append_run_event(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(req): Json<AppendEventRequest>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let store = EventStore::new(&conn);
+    match store.insert_event(id, &req.event_type, req.payload.as_deref().unwrap_or("{}")) {
+        Ok(event) => (StatusCode::CREATED, Json(serde_json::json!({
+            "id": event.id,
+            "seq": event.seq,
+        }))).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+    }
+}
+
+// === Run Tools ===
+
+#[derive(Serialize)]
+struct ToolResponse {
+    id: i64,
+    tool_name: String,
+    status: String,
+    duration_ms: Option<i64>,
+    tokens_used: i64,
+    error_message: Option<String>,
+    started_at: String,
+    completed_at: Option<String>,
+}
+
+async fn list_run_tools(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let repo = ToolRepository::new(&conn);
+    match repo.list_by_run(id) {
+        Ok(tools) => {
+            let responses: Vec<ToolResponse> = tools.into_iter().map(|t| ToolResponse {
+                id: t.id,
+                tool_name: t.tool_name,
+                status: t.status,
+                duration_ms: t.duration_ms,
+                tokens_used: t.tokens_used,
+                error_message: t.error_message,
+                started_at: t.started_at,
+                completed_at: t.completed_at,
+            }).collect();
+            Json(serde_json::json!(responses)).into_response()
+        }
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+    }
+}
+
+async fn run_tools_stats(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let repo = ToolRepository::new(&conn);
+    match repo.stats(id) {
+        Ok(stats) => Json(serde_json::json!({
+            "total": stats.total,
+            "success": stats.success,
+            "errors": stats.errors,
+            "total_duration_ms": stats.total_duration_ms,
+            "total_tokens": stats.total_tokens,
+            "total_cost": stats.total_cost,
+        })).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+    }
+}
+
+// === Run Context ===
+
+#[derive(Deserialize)]
+struct UpsertContextRequest {
+    slot: String,
+    content: String,
+}
+
+async fn list_run_context(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let repo = RunContextRepository::new(&conn);
+    match repo.list_by_run(id) {
+        Ok(contexts) => {
+            let responses: Vec<serde_json::Value> = contexts.into_iter().map(|c| {
+                serde_json::json!({
+                    "slot": c.slot,
+                    "content": c.content,
+                    "updated_at": c.updated_at,
+                })
+            }).collect();
+            Json(serde_json::json!(responses)).into_response()
+        }
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+    }
+}
+
+async fn upsert_run_context(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(req): Json<UpsertContextRequest>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let repo = RunContextRepository::new(&conn);
+    match repo.upsert(id, &req.slot, &req.content) {
+        Ok(()) => StatusCode::OK.into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+    }
+}
+
+async fn get_context_slot(
+    State(state): State<Arc<AppState>>,
+    Path((id, slot)): Path<(i64, String)>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let repo = RunContextRepository::new(&conn);
+    match repo.get(id, &slot) {
+        Ok(Some(ctx)) => Json(serde_json::json!({
+            "slot": ctx.slot,
+            "content": ctx.content,
+            "updated_at": ctx.updated_at,
+        })).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+    }
+}
+
+async fn delete_context_slot(
+    State(state): State<Arc<AppState>>,
+    Path((id, slot)): Path<(i64, String)>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let repo = RunContextRepository::new(&conn);
+    match repo.delete(id, &slot) {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
     }
 }
 

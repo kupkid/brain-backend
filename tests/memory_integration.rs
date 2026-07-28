@@ -485,7 +485,7 @@ fn test_vec0_knn_search() {
     };
 
     let id1 = repo.insert_atomic(&mem1, Some(&emb1)).unwrap();
-    let id2 = repo.insert_atomic(&mem2, Some(&emb2)).unwrap();
+    let _id2 = repo.insert_atomic(&mem2, Some(&emb2)).unwrap();
 
     // Search with query close to emb1
     let results = store.search_knn(&emb1, 1024, 2, &[]).unwrap();

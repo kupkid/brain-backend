@@ -1,5 +1,3 @@
-#![allow(dead_code, unused_imports)] // SCAFFOLD — temporary until run API integration
-
 use rusqlite::{params, Connection, OptionalExtension};
 use tracing::info;
 
@@ -123,7 +121,7 @@ impl<'a> RunRepository<'a> {
             |r| r.get(0),
         )?;
 
-        let current = RunStatus::from_str(&current_status)
+        let current = RunStatus::parse_status(&current_status)
             .ok_or_else(|| anyhow::anyhow!("invalid current status: {}", current_status))?;
 
         // Validate transition

@@ -56,7 +56,7 @@ impl WorkspaceBackend for FsWorkspaceBackend {
             let entry = entry?;
             let metadata = entry.metadata()?;
             let path = entry.path();
-            let relative = path.strip_prefix(&self.workspace_root(project_uuid))
+            let relative = path.strip_prefix(self.workspace_root(project_uuid))
                 .unwrap_or(&path)
                 .to_path_buf();
 
@@ -66,9 +66,9 @@ impl WorkspaceBackend for FsWorkspaceBackend {
                 size: metadata.len(),
                 modified: metadata.modified()
                     .ok()
-                    .and_then(|t| {
+                    .map(|t| {
                         let datetime: chrono::DateTime<chrono::Utc> = t.into();
-                        Some(datetime.to_rfc3339())
+                        datetime.to_rfc3339()
                     }),
             });
         }

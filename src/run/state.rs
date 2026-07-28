@@ -1,5 +1,3 @@
-#![allow(dead_code, unused_imports)] // SCAFFOLD — temporary until run state machine integration
-
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,7 +22,7 @@ impl RunStatus {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_status(s: &str) -> Option<Self> {
         match s {
             "pending" => Some(Self::Pending),
             "running" => Some(Self::Running),
@@ -101,7 +99,7 @@ impl RunStateMachine {
         Ok(Transition {
             from: current.clone(),
             to: target.clone(),
-            reason: if has_reason { None } else { None }, // Reason stored separately
+            reason: None, // Reason stored separately
         })
     }
 }
