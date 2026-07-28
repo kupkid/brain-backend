@@ -263,7 +263,12 @@ CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
     VALUES ('delete', old.id, old.content, old.memory_type, old.layer, old.source);
 END;
 
-CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON content, memory_type, layer, source ON memories BEGIN
+CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories
+WHEN old.content IS NOT new.content
+   OR old.memory_type IS NOT new.memory_type
+   OR old.layer IS NOT new.layer
+   OR old.source IS NOT new.source
+BEGIN
     INSERT INTO memories_fts(memories_fts, rowid, content, memory_type, layer, source)
     VALUES ('delete', old.id, old.content, old.memory_type, old.layer, old.source);
     INSERT INTO memories_fts(rowid, content, memory_type, layer, source)

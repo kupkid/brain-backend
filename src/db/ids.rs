@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_imports)] // SCAFFOLD — temporary until all modules consume IDs
+
 use uuid::Uuid;
 use rusqlite::types::Value;
 

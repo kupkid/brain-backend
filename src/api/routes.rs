@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post, delete},
+    routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -10,8 +10,11 @@ use std::sync::{Arc, Mutex};
 
 use crate::config::AppConfig;
 use crate::vault::VaultRepository;
+#[allow(unused_imports)]
 use crate::memory::MemoryRepository;
+#[allow(unused_imports)]
 use crate::run::RunRepository;
+#[allow(unused_imports)]
 use crate::project::ProjectRepository;
 
 pub struct AppState {
@@ -36,7 +39,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/v1/memories/search", post(search_memories))
         // Vault
         .route("/v1/credentials", get(list_credentials).post(store_credential))
-        .route("/v1/credentials/:name", get(get_credential).delete(delete_credential))
+        .route("/v1/credentials/:name", get(get_credential_metadata).delete(delete_credential))
         .with_state(state)
 }
 
@@ -77,7 +80,7 @@ async fn list_projects(
             }).collect();
             Json(serde_json::json!(responses)).into_response()
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
     }
 }
 
@@ -93,7 +96,7 @@ async fn create_project(
     };
     match repo.create(&new_project) {
         Ok(id) => (StatusCode::CREATED, Json(serde_json::json!({"id": id}))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
     }
 }
 
@@ -111,7 +114,7 @@ async fn get_project(
             root_path: p.root_path,
         })).into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
     }
 }
 
@@ -124,7 +127,7 @@ async fn delete_project(
     match repo.delete(id) {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
     }
 }
 
@@ -163,7 +166,7 @@ async fn list_runs(
             }).collect();
             Json(serde_json::json!(responses)).into_response()
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
     }
 }
 
@@ -181,7 +184,7 @@ async fn create_run(
     };
     match repo.create(&new_run) {
         Ok(id) => (StatusCode::CREATED, Json(serde_json::json!({"id": id}))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
     }
 }
 
@@ -200,7 +203,7 @@ async fn get_run(
             goal: r.goal,
         })).into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
     }
 }
 
@@ -225,7 +228,7 @@ async fn transition_run(
     };
     match repo.transition(id, status, req.reason.as_deref(), req.summary.as_deref(), req.error_message.as_deref()) {
         Ok(()) => StatusCode::OK.into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(_e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "transition failed"}))).into_response(),
     }
 }
 
@@ -262,14 +265,16 @@ async fn create_memory(
     };
     match repo.insert(&new_mem) {
         Ok(id) => (StatusCode::CREATED, Json(serde_json::json!({"id": id}))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
     }
 }
 
 #[derive(Deserialize)]
 struct SearchMemoryRequest {
     query: String,
+    #[allow(dead_code)] // SCAFFOLD — used by future retrieval pipeline
     project_id: Option<i64>,
+    #[allow(dead_code)] // SCAFFOLD — used by future retrieval pipeline
     limit: Option<usize>,
 }
 
@@ -303,17 +308,18 @@ async fn list_credentials(
     let vault = VaultRepository::new(&conn);
     match vault.list_credentials("global", None) {
         Ok(creds) => {
-            let responses: Vec<serde_json::Value> = creds.into_iter().map(|(id, name, tags, created)| {
+            let responses: Vec<serde_json::Value> = creds.into_iter().map(|c| {
                 serde_json::json!({
-                    "id": id,
-                    "name": name,
-                    "tags": serde_json::from_str::<serde_json::Value>(&tags).unwrap_or(serde_json::json!([])),
-                    "created_at": created,
+                    "id": c.id,
+                    "name": c.name,
+                    "key_version": c.key_version,
+                    "tags": serde_json::from_str::<serde_json::Value>(&c.tags_json).unwrap_or(serde_json::json!([])),
+                    "created_at": c.created_at,
                 })
             }).collect();
             Json(serde_json::json!(responses)).into_response()
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
     }
 }
 
@@ -336,25 +342,29 @@ async fn store_credential(
         &tags,
     ) {
         Ok(id) => (StatusCode::CREATED, Json(serde_json::json!({"id": id}))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
     }
 }
 
-async fn get_credential(
+/// GET /v1/credentials/:name — returns metadata ONLY, never the decrypted secret.
+async fn get_credential_metadata(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
     let conn = state.conn.lock().unwrap();
     let vault = VaultRepository::new(&conn);
-    let master_key = state.master_key.lock().unwrap();
 
-    match vault.get_credential(&master_key, &name, "global", None) {
-        Ok(Some(plaintext)) => {
-            let value = String::from_utf8_lossy(&plaintext).to_string();
-            Json(serde_json::json!({"name": name, "value": value})).into_response()
-        }
+    match vault.get_credential_metadata(&name, "global", None) {
+        Ok(Some(meta)) => Json(serde_json::json!({
+            "id": meta.id,
+            "name": meta.name,
+            "scope": meta.scope,
+            "key_version": meta.key_version,
+            "tags": serde_json::from_str::<serde_json::Value>(&meta.tags_json).unwrap_or(serde_json::json!([])),
+            "created_at": meta.created_at,
+        })).into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
     }
 }
 
@@ -368,6 +378,6 @@ async fn delete_credential(
     match vault.delete_credential(&name, "global", None) {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
     }
 }

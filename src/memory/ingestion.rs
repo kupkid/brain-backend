@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_imports)] // SCAFFOLD — temporary until ingestion pipeline
+
 use rusqlite::Connection;
 use sha2::{Sha256, Digest};
 use tracing::{info, warn};

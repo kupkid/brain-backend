@@ -7,14 +7,17 @@ pub mod ids;
 static MIGRATION_SQL: &str = include_str!("../../migrations/001_init.sql");
 
 pub fn init_db(db_path: &Path) -> anyhow::Result<Connection> {
-    let conn = Connection::open(db_path)?;
-
-    // Register sqlite-vec as auto-extension BEFORE any queries
+    // Register sqlite-vec as auto-extension BEFORE opening any connection.
+    // The transmute through black_box prevents LTO from stripping the symbol.
+    let init_fn = std::hint::black_box(sqlite_vec::sqlite3_vec_init);
+    #[allow(clippy::missing_transmute_annotations)]
     unsafe {
         rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
-            sqlite_vec::sqlite3_vec_init as *const (),
+            init_fn as *const (),
         )));
     }
+
+    let conn = Connection::open(db_path)?;
 
     // Run WAL and performance pragmas
     conn.execute_batch("PRAGMA journal_mode = WAL;")?;
@@ -29,8 +32,12 @@ pub fn init_db(db_path: &Path) -> anyhow::Result<Connection> {
     info!("database initialized at {}", db_path.display());
 
     // Verify vec0 is available
-    let version: String = conn.query_row("SELECT vec_version()", [], |r| r.get(0))?;
-    info!("sqlite-vec version: {}", version);
+    match conn.query_row("SELECT vec_version()", [], |r| r.get::<_, String>(0)) {
+        Ok(version) => info!("sqlite-vec version: {}", version),
+        Err(e) => {
+            anyhow::bail!("sqlite-vec not loaded: {}", e);
+        }
+    }
 
     // Verify FTS5 is available
     conn.execute_batch("CREATE VIRTUAL TABLE IF NOT EXISTS _fts5_test USING fts5(content);")?;

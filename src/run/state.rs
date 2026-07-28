@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_imports)] // SCAFFOLD — temporary until run state machine integration
+
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

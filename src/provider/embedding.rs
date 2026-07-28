@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_imports)] // SCAFFOLD — temporary until embedding provider integration
+
 use async_trait::async_trait;
 use thiserror::Error;
 

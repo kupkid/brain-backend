@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_imports)] // SCAFFOLD — temporary until memory API integration
+
 use rusqlite::{params, Connection, OptionalExtension};
 use tracing::info;
 

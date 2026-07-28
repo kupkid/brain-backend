@@ -254,10 +254,12 @@ dependencies = [
  "rand",
  "rmp-serde",
  "rusqlite",
+ "scopeguard",
  "serde",
  "serde_json",
  "sha2",
  "sqlite-vec",
+ "subtle",
  "thiserror 2.0.19",
  "tokio",
  "tokio-util",
@@ -267,6 +269,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "zerocopy 0.7.35",
+ "zeroize",
 ]
 
 [[package]]
@@ -1056,6 +1059,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
+name = "scopeguard"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
 name = "serde"
 version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1700,6 +1709,26 @@ name = "zerocopy-derive"
 version = "0.8.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fe976fb70c78cd64cccfe3a6fc142244e8a77b70959b30faf9d0ac37ee228eb"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "zeroize"
+version = "1.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
+dependencies = [
+ "zeroize_derive",
+]
+
+[[package]]
+name = "zeroize_derive"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c50655cbb0fe3fc43170059e702f1ce5e19b84cec58dc87b037a09935c2f328"
 dependencies = [
  "proc-macro2",
  "quote",

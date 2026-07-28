@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_imports)] // SCAFFOLD — temporary until retrieval pipeline
+
 use rusqlite::{params, Connection};
 use tracing::info;
 
