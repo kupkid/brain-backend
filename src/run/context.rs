@@ -102,7 +102,7 @@ impl<'a> RunContextRepository<'a> {
             "DELETE FROM run_contexts WHERE run_id = ?1",
             params![run_id],
         )?;
-        Ok(affected as usize)
+        Ok(affected)
     }
 
     /// Bulk upsert multiple slots in a transaction
