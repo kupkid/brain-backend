@@ -1,5 +1,6 @@
 pub mod api;
 pub mod config;
+pub mod context;
 pub mod db;
 pub mod memory;
 pub mod project;
