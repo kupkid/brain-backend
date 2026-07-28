@@ -10,11 +10,11 @@ use std::sync::{Arc, Mutex};
 
 use crate::config::AppConfig;
 use crate::vault::VaultRepository;
-#[allow(unused_imports)]
-use crate::memory::MemoryRepository;
-#[allow(unused_imports)]
+use crate::memory::{
+    MemoryRepository, MemoryRetriever, MemoryIngestion, IngestParams,
+    check_content, validate_layer_for_project,
+};
 use crate::run::RunRepository;
-#[allow(unused_imports)]
 use crate::project::ProjectRepository;
 
 pub struct AppState {
@@ -35,7 +35,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/v1/runs/:id", get(get_run))
         .route("/v1/runs/:id/transition", post(transition_run))
         // Memories
-        .route("/v1/memories", post(create_memory))
+        .route("/v1/memories", get(list_memories).post(create_memory))
         .route("/v1/memories/search", post(search_memories))
         // Vault
         .route("/v1/credentials", get(list_credentials).post(store_credential))
@@ -242,29 +242,51 @@ struct CreateMemoryRequest {
     importance: Option<f64>,
     project_id: Option<i64>,
     collection_id: Option<i64>,
+    run_id: Option<i64>,
+    source: Option<String>,
 }
 
 async fn create_memory(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateMemoryRequest>,
 ) -> impl IntoResponse {
+    let layer = req.layer.unwrap_or_else(|| "working".to_string());
+    let project_id = req.project_id;
+
+    if let Err(e) = validate_layer_for_project(&layer, project_id) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
+    }
+
+    let heuristic = check_content(&req.content);
+    if !heuristic.passed {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": "content rejected by heuristic filter",
+            "reason": heuristic.reason
+        }))).into_response();
+    }
+
     let conn = state.conn.lock().unwrap();
-    let repo = MemoryRepository::new(&conn);
-    let new_mem = crate::memory::repository::NewMemory {
-        collection_id: req.collection_id.unwrap_or(1),
-        project_id: req.project_id,
-        run_id: None,
+    let ingestion = MemoryIngestion::new(&conn);
+    let collection_id = req.collection_id.unwrap_or(1);
+
+    let ingest_params = IngestParams {
         content: req.content,
-        content_hash: Vec::new(), // Will be computed by ingestion
         memory_type: req.memory_type,
-        layer: req.layer.unwrap_or_else(|| "short_term".to_string()),
+        layer,
         importance: req.importance.unwrap_or(0.5),
-        source: "user".to_string(),
+        source: req.source.unwrap_or_else(|| "user".to_string()),
         source_ref: None,
-        metadata_json: "{}".to_string(),
+        project_id,
+        run_id: req.run_id,
+        collection_id,
+        embedding: None,
     };
-    match repo.insert(&new_mem) {
-        Ok(id) => (StatusCode::CREATED, Json(serde_json::json!({"id": id}))).into_response(),
+
+    match ingestion.ingest(&ingest_params) {
+        Ok(result) => (StatusCode::CREATED, Json(serde_json::json!({
+            "id": result.memory_id,
+            "is_duplicate": result.is_duplicate,
+        }))).into_response(),
         Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
     }
 }
@@ -272,22 +294,104 @@ async fn create_memory(
 #[derive(Deserialize)]
 struct SearchMemoryRequest {
     query: String,
-    #[allow(dead_code)] // SCAFFOLD — used by future retrieval pipeline
     project_id: Option<i64>,
-    #[allow(dead_code)] // SCAFFOLD — used by future retrieval pipeline
+    collection_id: Option<i64>,
     limit: Option<usize>,
+    #[allow(dead_code)] // reserved for future layer-scoped search
+    layer: Option<String>,
+}
+
+#[derive(Serialize)]
+struct MemorySearchResult {
+    id: i64,
+    content: String,
+    memory_type: String,
+    layer: String,
+    importance: f64,
+    score: f64,
+    source: String,
+    created_at: String,
 }
 
 async fn search_memories(
-    State(_state): State<Arc<AppState>>,
-    Json(_req): Json<SearchMemoryRequest>,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<SearchMemoryRequest>,
 ) -> impl IntoResponse {
-    // TODO: implement full retrieval pipeline
-    Json(serde_json::json!({
-        "query": _req.query,
-        "results": [],
-        "message": "retrieval pipeline not yet implemented"
-    }))
+    let conn = state.conn.lock().unwrap();
+    let retriever = MemoryRetriever::new(&conn);
+    let limit = req.limit.unwrap_or(20);
+    let collection_id = req.collection_id.unwrap_or(1);
+
+    match retriever.retrieve(
+        &req.query,
+        req.project_id,
+        collection_id,
+        None,
+        limit,
+    ) {
+        Ok(result) => {
+            let responses: Vec<MemorySearchResult> = result.memories.into_iter()
+                .zip(result.scores.iter())
+                .map(|(mem, (id, score))| {
+                    let _ = id;
+                    MemorySearchResult {
+                        id: mem.id,
+                        content: mem.content,
+                        memory_type: mem.memory_type,
+                        layer: mem.layer,
+                        importance: mem.importance,
+                        score: *score,
+                        source: mem.source,
+                        created_at: mem.created_at,
+                    }
+                })
+                .collect();
+            Json(serde_json::json!(responses)).into_response()
+        }
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "search failed"}))).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct ListMemoriesRequest {
+    project_id: Option<i64>,
+    layer: Option<String>,
+    limit: Option<usize>,
+}
+
+async fn list_memories(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ListMemoriesRequest>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let repo = MemoryRepository::new(&conn);
+    let limit = req.limit.unwrap_or(50);
+
+    let result = match (req.project_id, req.layer) {
+        (Some(pid), Some(layer)) => repo.list_by_project(pid, Some(&layer), limit),
+        (Some(pid), None) => repo.list_by_project(pid, None, limit),
+        (None, Some(layer)) => repo.list_by_layer(&layer, None, limit),
+        (None, None) => repo.list_global_profile(limit),
+    };
+
+    match result {
+        Ok(memories) => {
+            let responses: Vec<serde_json::Value> = memories.into_iter().map(|m| {
+                serde_json::json!({
+                    "id": m.id,
+                    "content": m.content,
+                    "memory_type": m.memory_type,
+                    "layer": m.layer,
+                    "importance": m.importance,
+                    "access_count": m.access_count,
+                    "source": m.source,
+                    "created_at": m.created_at,
+                })
+            }).collect();
+            Json(serde_json::json!(responses)).into_response()
+        }
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+    }
 }
 
 // === Vault ===

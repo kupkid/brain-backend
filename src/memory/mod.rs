@@ -2,11 +2,11 @@ pub mod repository;
 pub mod embedding;
 pub mod ingestion;
 pub mod retrieval;
+pub mod heuristic;
 
 pub use repository::MemoryRepository;
-#[allow(unused_imports)] // SCAFFOLD — re-exports for future modules
+#[allow(unused_imports)]
 pub use embedding::MemoryEmbeddingStore;
-#[allow(unused_imports)]
-pub use ingestion::MemoryIngestion;
-#[allow(unused_imports)]
+pub use ingestion::{MemoryIngestion, IngestResult, IngestParams, compute_content_hash};
 pub use retrieval::MemoryRetriever;
+pub use heuristic::{check_content, validate_layer_for_project};

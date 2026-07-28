@@ -1,4 +1,4 @@
-#![allow(dead_code, unused_imports)] // SCAFFOLD — temporary until memory API integration
+#![allow(dead_code)]
 
 use rusqlite::{params, Connection, OptionalExtension};
 use tracing::info;
@@ -46,7 +46,6 @@ impl<'a> MemoryRepository<'a> {
         Self { conn }
     }
 
-    /// Insert memory atomically (memory + FTS + vec0 handled by caller)
     pub fn insert(&self, mem: &NewMemory) -> anyhow::Result<i64> {
         let uuid = ids::new_uuid_blob();
 
@@ -71,11 +70,9 @@ impl<'a> MemoryRepository<'a> {
             ],
         )?;
 
-        let id = self.conn.last_insert_rowid();
-        Ok(id)
+        Ok(self.conn.last_insert_rowid())
     }
 
-    /// Insert memory + FTS + vec0 atomically
     pub fn insert_atomic(
         &self,
         mem: &NewMemory,
@@ -91,12 +88,11 @@ impl<'a> MemoryRepository<'a> {
             }
         };
 
-        // Insert embedding if provided
-        if let Some(vec) = embedding {
-            if let Err(e) = self.insert_embedding(id, mem.collection_id, vec) {
-                self.conn.execute_batch("ROLLBACK;")?;
-                return Err(e);
-            }
+        if let Some(vec) = embedding
+            && let Err(e) = self.insert_embedding(id, mem.collection_id, vec)
+        {
+            self.conn.execute_batch("ROLLBACK;")?;
+            return Err(e);
         }
 
         self.conn.execute_batch("COMMIT;")?;
@@ -104,7 +100,6 @@ impl<'a> MemoryRepository<'a> {
     }
 
     fn insert_embedding(&self, memory_id: i64, collection_id: i64, embedding: &[f32]) -> anyhow::Result<()> {
-        // Get dimensions from collection
         let dimensions: i32 = self.conn.query_row(
             "SELECT dimensions FROM embedding_collections WHERE id = ?1",
             params![collection_id],
@@ -112,8 +107,6 @@ impl<'a> MemoryRepository<'a> {
         )?;
 
         let table_name = format!("vec_mem_{}", dimensions);
-
-        // Use zerocopy to convert f32 slice to bytes
         let embedding_bytes: Vec<u8> = embedding.iter()
             .flat_map(|f| f.to_le_bytes())
             .collect();
@@ -126,7 +119,6 @@ impl<'a> MemoryRepository<'a> {
         Ok(())
     }
 
-    /// Get active memory by id
     pub fn get_active(&self, id: i64) -> anyhow::Result<Option<StoredMemory>> {
         self.conn
             .query_row(
@@ -157,7 +149,138 @@ impl<'a> MemoryRepository<'a> {
             .map_err(Into::into)
     }
 
-    /// Check for duplicate by content_hash in active memories
+    pub fn list_by_project(
+        &self,
+        project_id: i64,
+        layer: Option<&str>,
+        limit: usize,
+    ) -> anyhow::Result<Vec<StoredMemory>> {
+        let (sql, param_values): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match layer {
+            Some(l) => (
+                "SELECT id, uuid, collection_id, project_id, content, content_hash,
+                        memory_type, layer, importance, access_count, lifecycle_status,
+                        source, created_at
+                 FROM memories
+                 WHERE project_id = ?1 AND layer = ?2 AND lifecycle_status = 'active'
+                 ORDER BY importance DESC, created_at DESC
+                 LIMIT ?3".to_string(),
+                vec![
+                    Box::new(project_id) as Box<dyn rusqlite::types::ToSql>,
+                    Box::new(l.to_string()),
+                    Box::new(limit as i64),
+                ],
+            ),
+            None => (
+                "SELECT id, uuid, collection_id, project_id, content, content_hash,
+                        memory_type, layer, importance, access_count, lifecycle_status,
+                        source, created_at
+                 FROM memories
+                 WHERE project_id = ?1 AND lifecycle_status = 'active'
+                 ORDER BY importance DESC, created_at DESC
+                 LIMIT ?2".to_string(),
+                vec![
+                    Box::new(project_id) as Box<dyn rusqlite::types::ToSql>,
+                    Box::new(limit as i64),
+                ],
+            ),
+        };
+
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+        let rows = self.conn.prepare(&sql)?
+            .query_map(param_refs.as_slice(), |r| {
+                Ok(StoredMemory {
+                    id: r.get(0)?,
+                    uuid: r.get(1)?,
+                    collection_id: r.get(2)?,
+                    project_id: r.get(3)?,
+                    content: r.get(4)?,
+                    content_hash: r.get(5)?,
+                    memory_type: r.get(6)?,
+                    layer: r.get(7)?,
+                    importance: r.get(8)?,
+                    access_count: r.get(9)?,
+                    lifecycle_status: r.get(10)?,
+                    source: r.get(11)?,
+                    created_at: r.get(12)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(rows)
+    }
+
+    pub fn list_global_profile(
+        &self,
+        limit: usize,
+    ) -> anyhow::Result<Vec<StoredMemory>> {
+        let rows = self.conn.prepare(
+            "SELECT id, uuid, collection_id, project_id, content, content_hash,
+                    memory_type, layer, importance, access_count, lifecycle_status,
+                    source, created_at
+             FROM memories
+             WHERE layer = 'global_profile' AND project_id IS NULL AND lifecycle_status = 'active'
+             ORDER BY importance DESC, created_at DESC
+             LIMIT ?1"
+        )?
+        .query_map(params![limit as i64], |r| {
+            Ok(StoredMemory {
+                id: r.get(0)?,
+                uuid: r.get(1)?,
+                collection_id: r.get(2)?,
+                project_id: r.get(3)?,
+                content: r.get(4)?,
+                content_hash: r.get(5)?,
+                memory_type: r.get(6)?,
+                layer: r.get(7)?,
+                importance: r.get(8)?,
+                access_count: r.get(9)?,
+                lifecycle_status: r.get(10)?,
+                source: r.get(11)?,
+                created_at: r.get(12)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(rows)
+    }
+
+    pub fn list_by_layer(
+        &self,
+        layer: &str,
+        project_id: Option<i64>,
+        limit: usize,
+    ) -> anyhow::Result<Vec<StoredMemory>> {
+        let rows = self.conn.prepare(
+            "SELECT id, uuid, collection_id, project_id, content, content_hash,
+                    memory_type, layer, importance, access_count, lifecycle_status,
+                    source, created_at
+             FROM memories
+             WHERE layer = ?1 AND project_id IS ?2 AND lifecycle_status = 'active'
+             ORDER BY importance DESC, created_at DESC
+             LIMIT ?3"
+        )?
+        .query_map(params![layer, project_id, limit as i64], |r| {
+            Ok(StoredMemory {
+                id: r.get(0)?,
+                uuid: r.get(1)?,
+                collection_id: r.get(2)?,
+                project_id: r.get(3)?,
+                content: r.get(4)?,
+                content_hash: r.get(5)?,
+                memory_type: r.get(6)?,
+                layer: r.get(7)?,
+                importance: r.get(8)?,
+                access_count: r.get(9)?,
+                lifecycle_status: r.get(10)?,
+                source: r.get(11)?,
+                created_at: r.get(12)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(rows)
+    }
+
     pub fn find_active_by_hash(
         &self,
         project_id: Option<i64>,
@@ -176,7 +299,6 @@ impl<'a> MemoryRepository<'a> {
             .map_err(Into::into)
     }
 
-    /// Supersede old memory: set superseded_by and lifecycle_status
     pub fn supersede(&self, old_id: i64, new_id: i64) -> anyhow::Result<()> {
         self.conn.execute(
             "UPDATE memories
@@ -188,7 +310,6 @@ impl<'a> MemoryRepository<'a> {
         Ok(())
     }
 
-    /// Archive memories older than threshold
     pub fn archive_stale(&self, project_id: Option<i64>, layer: &str, max_age_days: i64) -> anyhow::Result<usize> {
         let affected = self.conn.execute(
             "UPDATE memories
@@ -207,7 +328,6 @@ impl<'a> MemoryRepository<'a> {
         Ok(affected)
     }
 
-    /// Increment access count
     pub fn touch(&self, id: i64) -> anyhow::Result<()> {
         self.conn.execute(
             "UPDATE memories
@@ -220,7 +340,6 @@ impl<'a> MemoryRepository<'a> {
         Ok(())
     }
 
-    /// Batch touch (update access counts for multiple memories)
     pub fn touch_batch(&self, ids: &[i64]) -> anyhow::Result<()> {
         if ids.is_empty() {
             return Ok(());
@@ -234,21 +353,28 @@ impl<'a> MemoryRepository<'a> {
              WHERE id IN ({})",
             placeholders.join(",")
         );
-        let params: Vec<Box<dyn rusqlite::types::ToSql>> = ids
+        let param_values: Vec<Box<dyn rusqlite::types::ToSql>> = ids
             .iter()
             .map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>)
             .collect();
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
         self.conn.execute(&sql, param_refs.as_slice())?;
         Ok(())
     }
 
-    /// Delete memory (hard delete, only for alpha retention)
     pub fn hard_delete(&self, id: i64) -> anyhow::Result<bool> {
         let affected = self.conn.execute(
             "DELETE FROM memories WHERE id = ?1",
             params![id],
         )?;
         Ok(affected > 0)
+    }
+
+    pub fn count_active(&self, project_id: Option<i64>) -> anyhow::Result<i64> {
+        self.conn.query_row(
+            "SELECT COUNT(*) FROM memories WHERE project_id IS ?1 AND lifecycle_status = 'active'",
+            params![project_id],
+            |r| r.get(0),
+        ).map_err(Into::into)
     }
 }

@@ -1,7 +1,6 @@
-#![allow(dead_code, unused_imports)] // SCAFFOLD — temporary until embedding integration
+#![allow(dead_code)]
 
 use rusqlite::{params, Connection};
-use tracing::info;
 
 pub struct MemoryEmbeddingStore<'a> {
     conn: &'a Connection,
@@ -18,7 +17,6 @@ impl<'a> MemoryEmbeddingStore<'a> {
         Self { conn }
     }
 
-    /// Search for similar memories using vec0 KNN
     pub fn search_knn(
         &self,
         query_embedding: &[f32],
@@ -34,8 +32,7 @@ impl<'a> MemoryEmbeddingStore<'a> {
             .flat_map(|f| f.to_le_bytes())
             .collect();
 
-        // Build query with optional exclusions
-        let (sql, params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = if exclude_memory_ids.is_empty() {
+        let (sql, param_values): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = if exclude_memory_ids.is_empty() {
             (
                 format!(
                     "SELECT vector_id, distance FROM {table_name}
@@ -70,9 +67,8 @@ impl<'a> MemoryEmbeddingStore<'a> {
             )
         };
 
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-        let mut stmt = self.conn.prepare(&sql)?;
-        let results = stmt
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+        let results = self.conn.prepare(&sql)?
             .query_map(param_refs.as_slice(), |r| {
                 Ok(KnnResult {
                     memory_id: r.get(0)?,
@@ -84,7 +80,6 @@ impl<'a> MemoryEmbeddingStore<'a> {
         Ok(results)
     }
 
-    /// Remove a memory from vec0 (called during supersede/archive)
     pub fn remove(&self, memory_id: i64, dimensions: i32) -> anyhow::Result<()> {
         let table_name = format!("vec_mem_{}", dimensions);
         self.conn.execute(
@@ -94,7 +89,6 @@ impl<'a> MemoryEmbeddingStore<'a> {
         Ok(())
     }
 
-    /// Get embedding count for a dimension table
     pub fn count(&self, dimensions: i32) -> anyhow::Result<i64> {
         let table_name = format!("vec_mem_{}", dimensions);
         let count: i64 = self.conn.query_row(

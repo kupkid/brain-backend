@@ -218,7 +218,7 @@ CREATE TABLE IF NOT EXISTS memories (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     CHECK (memory_type IN ('fact', 'procedure', 'episode', 'relationship')),
-    CHECK (layer IN ('working', 'short_term', 'long_term', 'archived')),
+    CHECK (layer IN ('global_profile', 'project', 'episodic', 'working')),
     CHECK (lifecycle_status IN ('active', 'archived', 'superseded', 'deleted')),
     CHECK (source IN ('agent', 'user', 'system', 'extraction')),
     CHECK (importance >= 0.0 AND importance <= 1.0)
