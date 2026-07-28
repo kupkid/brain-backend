@@ -1,5 +1,4 @@
 use anyhow::Result;
-use axum::Router;
 use std::sync::{Arc, Mutex};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
@@ -20,7 +19,6 @@ use api::AppState;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize tracing
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| "brain_backend=info,tower_http=info".into()))
@@ -28,34 +26,30 @@ async fn main() -> Result<()> {
         .init();
 
     let config = AppConfig::from_env()?;
-
-    // Ensure data directory exists
     std::fs::create_dir_all(&config.data_dir)?;
 
     // Initialize database
     let db_path = config.data_dir.join("brain.db");
     let conn = db::init_db(&db_path)?;
 
-    // Initialize vault with master key
-    let master_key = match &config.master_key_hex {
-        Some(hex_key) => {
-            let bytes = hex::decode(hex_key)?;
-            let mut key = [0u8; 32];
-            key.copy_from_slice(&bytes);
-            key
-        }
-        None => {
-            // Generate random key for first run
-            use rand::RngCore;
-            let mut key = [0u8; 32];
-            rand::thread_rng().fill_bytes(&mut key);
-            tracing::warn!("generated random master key — set BRAIN_MASTER_KEY env for persistence");
-            key
-        }
-    };
+    // Initialize vault with passphrase
+    let passphrase = std::env::var("BRAIN_VAULT_PASSPHRASE")
+        .map_err(|_| anyhow::anyhow!("BRAIN_VAULT_PASSPHRASE env var is required"))?;
 
     let vault = vault::VaultRepository::new(&conn);
-    vault.init(&master_key)?;
+    let master_key = match vault.get_active_master_key_version()? {
+        Some(_version) => {
+            // Subsequent run: unlock existing vault
+            let material = vault.unlock(passphrase.as_bytes())?;
+            material.key
+        }
+        None => {
+            // First run: initialize vault
+            let material = vault.init(passphrase.as_bytes())?;
+            tracing::info!("vault initialized for the first time");
+            material.key
+        }
+    };
 
     // Ensure vec0 tables exist for configured dimensions
     db::ensure_vec_table(&conn, config.embedding_provider.dimensions as i32)?;
@@ -86,6 +80,7 @@ async fn main() -> Result<()> {
     let state = Arc::new(AppState {
         config: config.clone(),
         conn: Mutex::new(conn),
+        master_key: Mutex::new(master_key),
     });
 
     // Build router

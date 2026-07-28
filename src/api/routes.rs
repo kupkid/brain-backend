@@ -17,6 +17,7 @@ use crate::project::ProjectRepository;
 pub struct AppState {
     pub config: AppConfig,
     pub conn: Mutex<rusqlite::Connection>,
+    pub master_key: Mutex<[u8; 32]>,
 }
 
 pub fn create_router(state: Arc<AppState>) -> Router {
@@ -296,32 +297,77 @@ struct StoreCredentialRequest {
 }
 
 async fn list_credentials(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    // TODO: implement vault list
-    Json(serde_json::json!([]))
+    let conn = state.conn.lock().unwrap();
+    let vault = VaultRepository::new(&conn);
+    match vault.list_credentials("global", None) {
+        Ok(creds) => {
+            let responses: Vec<serde_json::Value> = creds.into_iter().map(|(id, name, tags, created)| {
+                serde_json::json!({
+                    "id": id,
+                    "name": name,
+                    "tags": serde_json::from_str::<serde_json::Value>(&tags).unwrap_or(serde_json::json!([])),
+                    "created_at": created,
+                })
+            }).collect();
+            Json(serde_json::json!(responses)).into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+    }
 }
 
 async fn store_credential(
-    State(_state): State<Arc<AppState>>,
-    Json(_req): Json<StoreCredentialRequest>,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<StoreCredentialRequest>,
 ) -> impl IntoResponse {
-    // TODO: implement vault store
-    (StatusCode::CREATED, Json(serde_json::json!({"message": "vault store not yet implemented"}))).into_response()
+    let conn = state.conn.lock().unwrap();
+    let vault = VaultRepository::new(&conn);
+    let master_key = state.master_key.lock().unwrap();
+    let scope = req.scope.unwrap_or_else(|| "global".to_string());
+    let tags = req.tags.unwrap_or_default();
+
+    match vault.store_credential(
+        &master_key,
+        &req.name,
+        &scope,
+        req.project_id,
+        req.value.as_bytes(),
+        &tags,
+    ) {
+        Ok(id) => (StatusCode::CREATED, Json(serde_json::json!({"id": id}))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+    }
 }
 
 async fn get_credential(
-    State(_state): State<Arc<AppState>>,
-    Path(_name): Path<String>,
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
 ) -> impl IntoResponse {
-    // TODO: implement vault get
-    Json(serde_json::json!({"message": "vault get not yet implemented"}))
+    let conn = state.conn.lock().unwrap();
+    let vault = VaultRepository::new(&conn);
+    let master_key = state.master_key.lock().unwrap();
+
+    match vault.get_credential(&master_key, &name, "global", None) {
+        Ok(Some(plaintext)) => {
+            let value = String::from_utf8_lossy(&plaintext).to_string();
+            Json(serde_json::json!({"name": name, "value": value})).into_response()
+        }
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+    }
 }
 
 async fn delete_credential(
-    State(_state): State<Arc<AppState>>,
-    Path(_name): Path<String>,
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
 ) -> impl IntoResponse {
-    // TODO: implement vault delete
-    StatusCode::NO_CONTENT.into_response()
+    let conn = state.conn.lock().unwrap();
+    let vault = VaultRepository::new(&conn);
+
+    match vault.delete_credential(&name, "global", None) {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+    }
 }

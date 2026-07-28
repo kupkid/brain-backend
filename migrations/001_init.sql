@@ -30,6 +30,9 @@ CREATE INDEX IF NOT EXISTS idx_projects_uuid ON projects(uuid);
 CREATE TABLE IF NOT EXISTS vault_master_keys (
     id INTEGER PRIMARY KEY,
     algorithm TEXT NOT NULL DEFAULT 'aes-256-gcm',
+    salt BLOB(16) NOT NULL,
+    params_json TEXT NOT NULL DEFAULT '{"memory_cost":65536,"time_cost":3,"parallelism":4}',
+    key_hash BLOB(32) NOT NULL,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     retired_at TEXT,
     CHECK (algorithm IN ('aes-256-gcm'))
