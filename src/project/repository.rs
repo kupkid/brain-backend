@@ -1,5 +1,3 @@
-#![allow(dead_code, unused_imports)] // SCAFFOLD — temporary until project API integration
-
 use rusqlite::{params, Connection, OptionalExtension};
 use tracing::info;
 

@@ -1,13 +1,11 @@
 pub mod fs_backend;
 
-#[allow(unused_imports)] // SCAFFOLD — re-export for future modules
 pub use fs_backend::FsWorkspaceBackend;
 
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-#[allow(dead_code)] // SCAFFOLD — temporary until workspace integration
 pub enum WorkspaceError {
     #[error("path traversal detected: {0}")]
     PathTraversal(String),
@@ -26,7 +24,6 @@ pub enum WorkspaceError {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // SCAFFOLD — temporary until workspace integration
 pub struct FileEntry {
     pub path: PathBuf,
     pub is_dir: bool,
@@ -34,7 +31,6 @@ pub struct FileEntry {
     pub modified: Option<String>,
 }
 
-#[allow(dead_code)] // SCAFFOLD — temporary until workspace integration
 pub trait WorkspaceBackend: Send + Sync {
     fn read_file(&self, project_uuid: &[u8], relative_path: &str) -> Result<Vec<u8>, WorkspaceError>;
 

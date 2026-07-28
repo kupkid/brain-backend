@@ -15,6 +15,7 @@ use crate::memory::{
     check_content, validate_layer_for_project,
 };
 use crate::run::{RunRepository, ToolRepository, RunContextRepository, EventStore};
+use crate::workspace::{FsWorkspaceBackend, WorkspaceBackend};
 use crate::project::ProjectRepository;
 
 pub struct AppState {
@@ -45,6 +46,9 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // Vault
         .route("/v1/credentials", get(list_credentials).post(store_credential))
         .route("/v1/credentials/:name", get(get_credential_metadata).delete(delete_credential))
+        // Workspace
+        .route("/v1/projects/:id/workspace", get(list_workspace))
+        .route("/v1/projects/:id/workspace/*path", get(read_workspace_file).put(write_workspace_file))
         .with_state(state)
 }
 
@@ -670,6 +674,105 @@ async fn delete_credential(
     match vault.delete_credential(&name, "global", None) {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+    }
+}
+
+// === Workspace ===
+
+async fn list_workspace(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let proj_repo = ProjectRepository::new(&conn, state.config.data_dir.clone());
+    let workspace = FsWorkspaceBackend::new(state.config.data_dir.clone());
+
+    match proj_repo.get(id) {
+        Ok(Some(project)) => {
+            let uuid = project.uuid;
+            match workspace.list_dir(&uuid, "") {
+                Ok(entries) => {
+                    let responses: Vec<serde_json::Value> = entries.into_iter().map(|e| {
+                        serde_json::json!({
+                            "path": e.path.to_str().unwrap_or(""),
+                            "is_dir": e.is_dir,
+                            "size": e.size,
+                            "modified": e.modified,
+                        })
+                    }).collect();
+                    Json(serde_json::json!(responses)).into_response()
+                }
+                Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "workspace error"}))).into_response(),
+            }
+        }
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+    }
+}
+
+async fn read_workspace_file(
+    State(state): State<Arc<AppState>>,
+    Path((id, file_path)): Path<(i64, String)>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let proj_repo = ProjectRepository::new(&conn, state.config.data_dir.clone());
+    let workspace = FsWorkspaceBackend::new(state.config.data_dir.clone());
+
+    match proj_repo.get(id) {
+        Ok(Some(project)) => {
+            let uuid = project.uuid;
+            match workspace.read_file(&uuid, &file_path) {
+                Ok(content) => {
+                    // Try to decode as UTF-8, fall back to base64
+                    match String::from_utf8(content.clone()) {
+                        Ok(text) => Json(serde_json::json!({
+                            "path": file_path,
+                            "content": text,
+                            "encoding": "utf-8",
+                        })).into_response(),
+                        Err(_) => {
+                            use base64::Engine;
+                            let encoded = base64::engine::general_purpose::STANDARD.encode(&content);
+                            Json(serde_json::json!({
+                                "path": file_path,
+                                "content": encoded,
+                                "encoding": "base64",
+                            })).into_response()
+                        }
+                    }
+                }
+                Err(_e) => StatusCode::NOT_FOUND.into_response(),
+            }
+        }
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct WriteFileRequest {
+    content: String,
+}
+
+async fn write_workspace_file(
+    State(state): State<Arc<AppState>>,
+    Path((id, file_path)): Path<(i64, String)>,
+    Json(req): Json<WriteFileRequest>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let proj_repo = ProjectRepository::new(&conn, state.config.data_dir.clone());
+    let workspace = FsWorkspaceBackend::new(state.config.data_dir.clone());
+
+    match proj_repo.get(id) {
+        Ok(Some(project)) => {
+            let uuid = project.uuid;
+            match workspace.write_file(&uuid, &file_path, req.content.as_bytes()) {
+                Ok(()) => StatusCode::OK.into_response(),
+                Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "write failed"}))).into_response(),
+            }
+        }
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
     }
 }

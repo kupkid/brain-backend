@@ -1,7 +1,4 @@
-#![allow(dead_code, unused_imports)] // SCAFFOLD — temporary until workspace I/O
-
-use std::path::{Path, PathBuf};
-use tokio::fs;
+use std::path::PathBuf;
 
 use super::{FileEntry, WorkspaceBackend, WorkspaceError};
 

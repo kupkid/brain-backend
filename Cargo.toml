@@ -32,6 +32,7 @@ async-trait = "0.1"
 subtle = "2.6"
 zeroize = { version = "1", features = ["derive"] }
 scopeguard = "1"
+base64 = "0.22"
 
 [profile.release]
 opt-level = "z"
