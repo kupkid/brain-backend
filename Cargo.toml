@@ -1,0 +1,36 @@
+[package]
+name = "brain-backend"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "time"] }
+axum = { version = "0.7", features = ["ws", "macros"] }
+axum-extra = { version = "0.9", features = ["typed-header"] }
+tower = { version = "0.4", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+sqlite-vec = "0.1"
+uuid = { version = "1", features = ["v7", "serde"] }
+aes-gcm = "0.10"
+sha2 = "0.10"
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rmp-serde = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+anyhow = "1"
+zerocopy = "0.7"
+tokio-util = "0.7"
+futures = "0.3"
+hex = "0.4"
+async-trait = "0.1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
