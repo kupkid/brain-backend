@@ -1,7 +1,9 @@
 pub mod embedding;
 pub mod llm;
+pub mod cohere_llm;
+pub mod cohere_embedding;
 
-#[allow(unused_imports)] // SCAFFOLD — re-exports for future modules
 pub use embedding::EmbeddingProvider;
-#[allow(unused_imports)]
 pub use llm::LlmProvider;
+pub use cohere_llm::CohereLlm;
+pub use cohere_embedding::CohereEmbedding;
