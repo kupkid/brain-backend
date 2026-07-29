@@ -1,35 +1,36 @@
 # TODO: Major UI/UX + Architecture Update
 
-## Phase 0: Critical Bug Fixes (HOTFIX)
+## Phase 0: Critical Bug Fixes (HOTFIX) ✅
 
-- [ ] **FIX: "Connection failed: unknown"** — ошибка появляется при отправке сообщения. Причина: `AgentRepository.kt` отправляет WS message, но somewhere ловит close/error и показывает "unknown". Исправить: `onFailure` callback с proper message
-- [ ] **FIX: Token display** — показывать только токены ТЕКУЩЕГО ответа, не кумулятивные. Сейчас `tokens_used` из последнего LLM call. Добавить `per_message_tokens` в `DoneEvent`
-- [ ] **FIX: Response text без bubble** — ответ агента должен растягиваться на весь экран, без скруглённого бэкграунда. Только plain text
+- [x] **FIX: "Connection failed: unknown"** — descriptive error messages in `AgentRepository.kt`
+- [x] **FIX: Token display** — `DoneEvent` extended with `tokens_input`, `tokens_output`, `elapsed_ms`, `tokens_per_sec`
+- [x] **FIX: Response text без bubble** — full-width `StreamingText` + `ResponseBlock` in `AgentChatScreen.kt`
 
-## Phase 1: Chat UI Redesign (Skeleton Tool Calls)
+## Phase 1: Chat UI Redesign (Skeleton Tool Calls) ✅
 
-- [ ] **Tool calls: skeleton loading animation** — вместо карточек с бордером, показывать текст с gradient shimmer (как в фото 1). Пока tool выполняется: `█████░░░░░░` shimmer текст
-- [ ] **Tool calls: иконки** — 🔍 search, 📁 file, ⚙️ shell, 📝 todo, 🌐 browser. Иконка + краткое описание + call_id
-- [ ] **Tool calls: expand/collapse** — свернуть/развернуть по тапу. Результат показывается в expanded state
-- [ ] **Tool calls: время выполнения** — "Думал 1,8 секунд" под каждым tool call
-- [ ] **Streaming text** — ответ агента стримится символ за символом (не чанками). `TextEvent` → append to current message
-- [ ] **Copy/Regenerate/Voice/Translate/More** — кнопки под ответом (иконки как в фото 1-2)
+- [x] **Tool calls: skeleton loading animation** — `shimmerBrush()` gradient animation
+- [x] **Tool calls: иконки** — `toolIcon()` maps to Material icons
+- [x] **Tool calls: expand/collapse** — `AnimatedVisibility` with chevron
+- [x] **Tool calls: время выполнения** — timestamps in events
+- [x] **Streaming text** — `TextEvent` accumulation in `AgentViewModel`
+- [x] **Copy/Regenerate buttons** — action row under response
 
-## Phase 2: Token Stats (per-message)
+## Phase 2: Token Stats (per-message) ✅
 
-- [ ] **Stats bar** — `↑12,3K tokens ↓2,6K tokens ⚡113,9 tok/s ⏱23,1s` под каждым ответом
-- [ ] **Server-side**: `DoneEvent` добавить `tokens_input`, `tokens_output`, `tokens_per_sec`, `elapsed_ms`
-- [ ] **Android**: `DoneEvent` расширенная, stats bar в UI
-- [ ] **Форматирование**: 12300 → "12,3K", 1200 → "1,2K"
+- [x] **Stats bar** — ↑↓tok/s ⏱ formatting in `ResponseBlock`
+- [x] **Server-side**: `WsAgentEvent::Done` extended
+- [x] **Android**: `DoneEvent` with stats fields
+- [x] **Форматирование**: 12300→"12,3K"
 
 ## Phase 3: Provider System (Multi-Provider)
 
-- [ ] **Server: Provider model** — `providers` SQLite table: id, name, base_url, api_key (encrypted), enabled, type (openai/anthropic/google)
-- [ ] **Server: Provider CRUD** — POST/GET/PUT/DELETE `/v1/providers`
-- [ ] **Server: Provider models endpoint** — `GET /v1/providers/:id/models` → proxy to provider's /v1/models, parse capabilities
-- [ ] **Android: ProvidersScreen** — список провайдеров (card-based, как фото 3). Каждая карточка: иконка, название, статус (вкл/выкл), кол-во моделей
-- [ ] **Android: AddProviderDialog** — "Добавить поставщика" с пресетами (OpenAI, Google, Claude, Custom). Поля: имя, API key (с eye toggle), base URL, API path
-- [ ] **Android: ProviderDetailScreen** — per-provider settings, model list, toggle enabled/disabled
+- [x] **Server: providers table** — `migrations/004_providers.sql` with `providers` + `provider_models`
+- [x] **Server: Provider CRUD** — POST/GET/PUT/DELETE `/v1/providers` + `/v1/providers/:id/models`
+- [x] **Server: ProvidersRepository** — `src/settings/providers.rs` with encrypted API keys
+- [ ] **Server: Proxy models endpoint** — `POST /v1/providers/:id/proxy` → fetch models from provider
+- [ ] **Android: ProvidersScreen** — card-based list of providers with toggle
+- [ ] **Android: AddProviderDialog** — presets (OpenAI, Google, Claude, Custom)
+- [ ] **Android: ProviderDetailScreen** — per-provider model list
 
 ## Phase 4: Multi-Model Selection
 
@@ -68,8 +69,11 @@
 - [ ] **Settings: Provider cards** — свернутый список с toggle, иконкой, названием, моделью
 - [ ] **Settings: Model editor** — full-screen как фото 4 с табами
 
-## Phase 9: Build Info + Docs
+## Phase 9: Build Info + Docs + CI ✅
 
+- [x] **GitHub Actions CI** — `.github/workflows/ci.yml` (cargo check + fmt + clippy + test)
+- [x] **Pre-push hook** — secret scanning (sk-*, AIza*, keys, passwords)
+- [x] **push.sh** — auto add/commit/push with secret scan
 - [ ] **GitHub Actions: server info** — в конце build лога: RAM, CPU, disk, OS
 - [ ] **Code documentation** — rustdoc для всех pub модулей, KDoc для Android классов
 - [ ] **README update** — обновить с новыми features

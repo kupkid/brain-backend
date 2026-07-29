@@ -23,6 +23,7 @@ use crate::agent::SharedEventBus;
 use crate::ws_agent::LlmFactory;
 use crate::provider::embedding::EmbeddingProvider;
 use crate::settings::ProviderSettingsRepository;
+use crate::settings::providers::ProvidersRepository;
 
 pub struct AppState {
     pub config: AppConfig,
@@ -67,9 +68,14 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // Workspace
         .route("/v1/projects/:id/workspace", get(list_workspace))
         .route("/v1/projects/:id/workspace/*path", get(read_workspace_file).put(write_workspace_file))
-        // Provider Settings
+        // Provider Settings (legacy singleton)
         .route("/v1/settings/provider", get(get_provider_settings).put(save_provider_settings).delete(delete_provider_settings))
         .route("/v1/settings/provider/proxy", post(proxy_provider_request))
+        // Multi-Provider CRUD
+        .route("/v1/providers", get(list_providers).post(create_provider))
+        .route("/v1/providers/:id", get(get_provider).put(update_provider).delete(delete_provider))
+        .route("/v1/providers/:id/models", get(list_provider_models).post(upsert_provider_model))
+        .route("/v1/providers/:id/models/clear", post(clear_provider_models))
         .with_state(state);
 
     if requires_auth {
@@ -1036,5 +1042,109 @@ async fn proxy_provider_request(
             }
         }
         Err(_e) => (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error": "failed to reach provider"}))).into_response(),
+    }
+}
+
+// === Multi-Provider CRUD ===
+
+async fn list_providers(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let repo = ProvidersRepository::new(&conn);
+    match repo.list() {
+        Ok(providers) => Json(serde_json::json!(providers)).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+    }
+}
+
+async fn get_provider(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let repo = ProvidersRepository::new(&conn);
+    match repo.get(id) {
+        Ok(Some(p)) => Json(serde_json::json!(p)).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+    }
+}
+
+async fn create_provider(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<crate::settings::providers::CreateProviderRequest>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let repo = ProvidersRepository::new(&conn);
+    let master_key = state.master_key.lock().unwrap();
+    match repo.create(&master_key, &req) {
+        Ok(id) => (StatusCode::CREATED, Json(serde_json::json!({"id": id}))).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "failed to create provider"}))).into_response(),
+    }
+}
+
+async fn update_provider(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(req): Json<crate::settings::providers::UpdateProviderRequest>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let repo = ProvidersRepository::new(&conn);
+    let master_key = state.master_key.lock().unwrap();
+    match repo.update(&master_key, id, &req) {
+        Ok(true) => Json(serde_json::json!({"status": "updated"})).into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "failed to update provider"}))).into_response(),
+    }
+}
+
+async fn delete_provider(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let repo = ProvidersRepository::new(&conn);
+    match repo.delete(id) {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+    }
+}
+
+async fn list_provider_models(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let repo = ProvidersRepository::new(&conn);
+    match repo.list_models(id) {
+        Ok(models) => Json(serde_json::json!(models)).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+    }
+}
+
+async fn upsert_provider_model(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Json(model): Json<crate::settings::providers::ProviderModel>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let repo = ProvidersRepository::new(&conn);
+    match repo.upsert_model(id, &model) {
+        Ok(model_id) => (StatusCode::CREATED, Json(serde_json::json!({"id": model_id}))).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "failed to save model"}))).into_response(),
+    }
+}
+
+async fn clear_provider_models(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let repo = ProvidersRepository::new(&conn);
+    match repo.delete_models(id) {
+        Ok(n) => Json(serde_json::json!({"deleted": n})).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
     }
 }

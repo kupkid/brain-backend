@@ -1,3 +1,5 @@
+pub mod providers;
+
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use tracing::info;
