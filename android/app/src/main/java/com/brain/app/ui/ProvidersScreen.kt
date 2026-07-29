@@ -78,6 +78,7 @@ private val okHttpClient = okhttp3.OkHttpClient.Builder()
     .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
     .build()
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProvidersScreen(
     settings: BrainSettings,
@@ -356,6 +357,7 @@ fun ProvidersScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProviderCardModern(
     provider: ServerProvider,
