@@ -110,6 +110,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/v1/providers/:id/models/clear",
             post(clear_provider_models),
         )
+        .route(
+            "/v1/providers/:id/fetch-models",
+            post(fetch_provider_models),
+        )
         .with_state(state);
 
     if let Some(key) = api_key.filter(|_| requires_auth) {
@@ -1424,4 +1428,152 @@ async fn clear_provider_models(
         )
             .into_response(),
     }
+}
+
+async fn fetch_provider_models(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let (base_url, api_key) = {
+        let conn = state.conn.lock().unwrap();
+        let repo = ProvidersRepository::new(&conn);
+        let provider = match repo.get(id) {
+            Ok(Some(p)) => p,
+            Ok(None) => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({"error": "provider not found"})),
+                )
+                    .into_response()
+            }
+            Err(_e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "internal error"})),
+                )
+                    .into_response()
+            }
+        };
+        let key = repo
+            .get_api_key(&state.master_key.lock().unwrap(), id)
+            .ok()
+            .flatten();
+        (provider.base_url, key)
+    };
+
+    // Proxy GET /v1/models to the provider
+    let url = format!("{}/v1/models", base_url.trim_end_matches('/'));
+    let client = reqwest::Client::new();
+    let mut builder = client.get(&url);
+    if let Some(ref key) = api_key {
+        builder = builder.header("Authorization", format!("Bearer {key}"));
+    }
+
+    let response = match builder.send().await {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({"error": format!("failed to reach provider: {e}")})),
+            )
+                .into_response()
+        }
+    };
+
+    let body = match response.text().await {
+        Ok(b) => b,
+        Err(e) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({"error": format!("failed to read response: {e}")})),
+            )
+                .into_response()
+        }
+    };
+
+    let parsed: serde_json::Value = match serde_json::from_str(&body) {
+        Ok(v) => v,
+        Err(_) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({"error": "invalid JSON from provider", "raw": body})),
+            )
+                .into_response()
+        }
+    };
+
+    // Parse models from standard OpenAI format: {"data": [{"id": "model-name", ...}]}
+    let models = match parsed.get("data").and_then(|d| d.as_array()) {
+        Some(arr) => arr,
+        None => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({"error": "unexpected response format", "response": parsed})),
+            )
+                .into_response()
+        }
+    };
+
+    // Upsert models into provider_models
+    let mut saved = 0;
+    let mut errors = Vec::new();
+    {
+        let conn = state.conn.lock().unwrap();
+        let repo = ProvidersRepository::new(&conn);
+        for m in models {
+            let model_id = match m.get("id").and_then(|v| v.as_str()) {
+                Some(id) => id.to_string(),
+                None => continue,
+            };
+            let model_type = if model_id.contains("embed") {
+                "embedding"
+            } else if model_id.contains("image") || model_id.contains("dall-e") {
+                "image"
+            } else {
+                "chat"
+            };
+
+            // Detect capabilities from model name heuristics
+            let lower = model_id.to_lowercase();
+            let supports_tools = !lower.contains("embed")
+                && !lower.contains("mini")
+                && (lower.contains("gpt-4") || lower.contains("claude") || lower.contains("gemini"));
+            let supports_vision = lower.contains("gpt-4o") || lower.contains("claude-3")
+                || lower.contains("gemini") || lower.contains("vision");
+            let supports_reasoning = lower.contains("o1") || lower.contains("o3")
+                || lower.contains("thinking") || lower.contains("reason");
+
+            let provider_model = crate::settings::providers::ProviderModel {
+                id: 0,
+                provider_id: id,
+                model_id: model_id.clone(),
+                model_type: model_type.to_string(),
+                display_name: m.get("owned_by").and_then(|v| v.as_str()).map(String::from),
+                context_window: None,
+                max_output: None,
+                supports_tools,
+                supports_vision,
+                supports_reasoning,
+                supports_audio: false,
+                supports_video: false,
+                input_modalities: if supports_vision {
+                    "text,image".to_string()
+                } else {
+                    "text".to_string()
+                },
+                output_modalities: "text".to_string(),
+            };
+            match repo.upsert_model(id, &provider_model) {
+                Ok(_) => saved += 1,
+                Err(e) => errors.push(format!("{model_id}: {e}")),
+            }
+        }
+    }
+
+    Json(serde_json::json!({
+        "saved": saved,
+        "errors": errors,
+        "total_fetched": models.len(),
+    }))
+    .into_response()
 }
