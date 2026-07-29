@@ -68,7 +68,7 @@ async fn main() -> Result<()> {
         tracing::info!("created default embedding collection");
     }
 
-    // Create embedding provider (always Cohere for now)
+    // Create embedding provider — reads from provider_settings or env fallback
     let emb_key = std::env::var("COHERE_API_KEY")
         .or_else(|_| std::env::var("LLM_API_KEY"))
         .expect("COHERE_API_KEY or LLM_API_KEY required for embeddings");
@@ -93,10 +93,29 @@ async fn main() -> Result<()> {
                         .ok()
                         .flatten()
                         .unwrap_or_default();
+
+                    // Read model from provider_models (first chat model)
+                    let model_name: String = conn
+                        .query_row(
+                            "SELECT model_id FROM provider_models WHERE provider_id = ?1 AND model_type = 'chat' LIMIT 1",
+                            rusqlite::params![p.id],
+                            |r| r.get(0),
+                        )
+                        .unwrap_or_else(|_| {
+                            // Fallback: get any model from this provider
+                            conn.query_row(
+                                "SELECT model_id FROM provider_models WHERE provider_id = ?1 LIMIT 1",
+                                rusqlite::params![p.id],
+                                |r| r.get(0),
+                            )
+                            .unwrap_or_else(|_| "gpt-4o".to_string())
+                        });
+
                     tracing::info!(
-                        "WS agent LLM: provider='{}' type='{}' base_url='{}'",
+                        "WS agent LLM: provider='{}' type='{}' model='{}' base_url='{}'",
                         p.name,
                         p.provider_type,
+                        model_name,
                         p.base_url
                     );
                     match p.provider_type.as_str() {
@@ -104,14 +123,14 @@ async fn main() -> Result<()> {
                             let provider =
                                 brain_backend::provider::openai_compat::OpenAiCompatLlm::new(
                                     api_key,
-                                    "gpt-4o".to_string(),
+                                    model_name,
                                     p.base_url,
                                 );
                             Arc::new(provider.with_tools(tools)) as Arc<dyn LlmProvider>
                         }
                         "cohere" => {
                             let provider = brain_backend::provider::cohere_llm::CohereLlm::new(
-                                api_key, None, None,
+                                api_key, Some(model_name), Some(p.base_url),
                             );
                             Arc::new(provider.with_tools(tools)) as Arc<dyn LlmProvider>
                         }
@@ -120,7 +139,7 @@ async fn main() -> Result<()> {
                             let provider =
                                 brain_backend::provider::openai_compat::OpenAiCompatLlm::new(
                                     api_key,
-                                    "gpt-4o".to_string(),
+                                    model_name,
                                     p.base_url,
                                 );
                             Arc::new(provider.with_tools(tools)) as Arc<dyn LlmProvider>
@@ -128,13 +147,14 @@ async fn main() -> Result<()> {
                     }
                 }
                 None => {
-                    tracing::warn!("no provider configured — falling back to env vars");
-                    // Fallback to env vars
-                    let api_key = std::env::var("COHERE_API_KEY")
-                        .or_else(|_| std::env::var("LLM_API_KEY"))
-                        .unwrap_or_default();
+                    tracing::warn!("no provider configured — agent will not work");
+                    // Return a dummy provider that will fail health_check
                     let provider =
-                        brain_backend::provider::cohere_llm::CohereLlm::new(api_key, None, None);
+                        brain_backend::provider::openai_compat::OpenAiCompatLlm::new(
+                            String::new(),
+                            "no-model".to_string(),
+                            "http://localhost".to_string(),
+                        );
                     Arc::new(provider.with_tools(tools)) as Arc<dyn LlmProvider>
                 }
             }
