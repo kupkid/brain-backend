@@ -7,3 +7,13 @@ brain.db
 ARCHITECTURE.md
 SECURITY.md
 hello.py
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+
+# Test artifacts
+tests/logs/
+tests/results/
