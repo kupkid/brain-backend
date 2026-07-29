@@ -7,6 +7,7 @@ pub mod memory;
 pub mod project;
 pub mod provider;
 pub mod run;
+pub mod settings;
 pub mod vault;
 pub mod workspace;
 pub mod ws_agent;

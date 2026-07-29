@@ -8,16 +8,25 @@ import okhttp3.*
 import okio.ByteString
 import java.util.concurrent.TimeUnit
 
-class AgentRepository(private val baseUrl: String) {
+class AgentRepository(
+    private val baseUrl: String,
+    private val apiKey: String? = null
+) {
 
     private val client = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
+        .pingInterval(30, TimeUnit.SECONDS)
         .build()
 
     fun connect(task: String): Flow<AgentEvent> = callbackFlow {
-        val request = Request.Builder()
+        val builder = Request.Builder()
             .url("ws://$baseUrl/ws/agent")
-            .build()
+
+        if (!apiKey.isNullOrBlank()) {
+            builder.addHeader("Authorization", "Bearer $apiKey")
+        }
+
+        val request = builder.build()
 
         val listener = object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -38,6 +47,10 @@ class AgentRepository(private val baseUrl: String) {
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
                 onMessage(webSocket, bytes.utf8())
+            }
+
+            override fun onPong(webSocket: WebSocket, bytes: ByteString) {
+                // keepalive pong received
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {

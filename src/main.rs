@@ -97,6 +97,8 @@ async fn main() -> Result<()> {
         }
     };
 
+    let api_key = std::env::var("BRAIN_API_KEY").ok();
+
     let state = Arc::new(AppState {
         config: config.clone(),
         conn: Mutex::new(conn),
@@ -104,6 +106,7 @@ async fn main() -> Result<()> {
         event_bus: Arc::new(EventBus::new(1024)),
         llm_factory: Arc::new(llm_factory),
         embedding,
+        api_key,
     });
 
     let cors = CorsLayer::new()

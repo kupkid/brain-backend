@@ -22,6 +22,7 @@ use crate::project::ProjectRepository;
 use crate::agent::SharedEventBus;
 use crate::ws_agent::LlmFactory;
 use crate::provider::embedding::EmbeddingProvider;
+use crate::settings::ProviderSettingsRepository;
 
 pub struct AppState {
     pub config: AppConfig,
@@ -30,11 +31,15 @@ pub struct AppState {
     pub event_bus: SharedEventBus,
     pub llm_factory: Arc<LlmFactory>,
     pub embedding: Arc<dyn EmbeddingProvider>,
+    pub api_key: Option<String>,
 }
 
 pub fn create_router(state: Arc<AppState>) -> Router {
-    Router::new()
-        // Health
+    let requires_auth = state.api_key.is_some();
+    let api_key = state.api_key.clone();
+
+    let mut router = Router::new()
+        // Health — no auth
         .route("/health", get(health))
         // WebSocket Agent
         .route("/ws/agent", get(ws_agent_handler))
@@ -62,7 +67,33 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // Workspace
         .route("/v1/projects/:id/workspace", get(list_workspace))
         .route("/v1/projects/:id/workspace/*path", get(read_workspace_file).put(write_workspace_file))
-        .with_state(state)
+        // Provider Settings
+        .route("/v1/settings/provider", get(get_provider_settings).put(save_provider_settings).delete(delete_provider_settings))
+        .route("/v1/settings/provider/proxy", post(proxy_provider_request))
+        .with_state(state);
+
+    if requires_auth {
+        if let Some(key) = api_key {
+            router = router.layer(axum::middleware::from_fn(move |req: axum::http::Request<axum::body::Body>, next: axum::middleware::Next| {
+                let key = key.clone();
+                async move {
+                    if req.uri().path() == "/health" {
+                        return next.run(req).await;
+                    }
+                    let auth = req.headers()
+                        .get("Authorization")
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|v| v.strip_prefix("Bearer "));
+                    match auth {
+                        Some(k) if k == key => next.run(req).await,
+                        _ => axum::http::StatusCode::UNAUTHORIZED.into_response(),
+                    }
+                }
+            }));
+        }
+    }
+
+    router
 }
 
 // === Health ===
@@ -905,5 +936,105 @@ async fn handle_ws(
                 }
             }
         }
+    }
+}
+
+// === Provider Settings ===
+
+async fn get_provider_settings(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let repo = ProviderSettingsRepository::new(&conn);
+    match repo.get() {
+        Ok(Some(settings)) => {
+            let api_key = repo.get_api_key(&state.master_key.lock().unwrap()).ok().flatten();
+            Json(serde_json::json!({
+                "base_url": settings.base_url,
+                "api_key_set": api_key.is_some(),
+                "api_key_preview": api_key.as_ref().map(|k| {
+                    if k.len() > 8 {
+                        format!("{}...{}", &k[..4], &k[k.len()-4..])
+                    } else {
+                        "****".to_string()
+                    }
+                }),
+                "llm_model": settings.llm_model,
+                "llm_max_tokens": settings.llm_max_tokens,
+                "embedding_model": settings.embedding_model,
+                "embedding_dimensions": settings.embedding_dimensions,
+                "embedding_endpoint": settings.embedding_endpoint,
+            })).into_response()
+        }
+        Ok(None) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "no provider configured"}))).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+    }
+}
+
+async fn save_provider_settings(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<crate::settings::SaveProviderRequest>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let repo = ProviderSettingsRepository::new(&conn);
+    let master_key = state.master_key.lock().unwrap();
+    match repo.save(&master_key, &req) {
+        Ok(()) => Json(serde_json::json!({"status": "saved"})).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "failed to save"}))).into_response(),
+    }
+}
+
+async fn delete_provider_settings(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    let repo = ProviderSettingsRepository::new(&conn);
+    match repo.delete() {
+        Ok(true) => Json(serde_json::json!({"status": "deleted"})).into_response(),
+        Ok(false) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "no settings found"}))).into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct ProxyRequest {
+    path: String,
+}
+
+async fn proxy_provider_request(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ProxyRequest>,
+) -> impl IntoResponse {
+    let (base_url, api_key) = {
+        let conn = state.conn.lock().unwrap();
+        let repo = ProviderSettingsRepository::new(&conn);
+        let settings = match repo.get() {
+            Ok(Some(s)) => s,
+            Ok(None) => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "no provider configured"}))).into_response(),
+            Err(_e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        };
+        let key = repo.get_api_key(&state.master_key.lock().unwrap()).ok().flatten();
+        (settings.base_url, key)
+    };
+
+    let url = format!("{}{}", base_url, req.path);
+    let client = reqwest::Client::new();
+    let mut builder = client.get(&url);
+    if let Some(ref key) = api_key {
+        builder = builder.header("Authorization", format!("Bearer {key}"));
+    }
+
+    match builder.send().await {
+        Ok(resp) => {
+            let status = resp.status();
+            match resp.text().await {
+                Ok(body) => {
+                    let parsed: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::json!({"raw": body}));
+                    (StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::OK), Json(parsed)).into_response()
+                }
+                Err(_e) => (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error": "failed to read response"}))).into_response(),
+            }
+        }
+        Err(_e) => (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error": "failed to reach provider"}))).into_response(),
     }
 }

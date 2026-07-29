@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 use axum::extract::ws::{Message, WebSocket};
 use futures::StreamExt;
 use tokio::sync::mpsc;
+use tokio::time::{interval, Duration};
 use tracing::info;
 
 use crate::agent::{AgentLoop, AgentConfig, agent_loop::{WsAgentEvent, AgentMessage}, tools};
@@ -112,9 +113,19 @@ pub async fn run_agent_ws(
         agent.process_message(&task, &history).await
     });
 
-    // 6. Forward events to WebSocket
+    // 6. Forward events to WebSocket with keepalive ping
+    let mut ping_interval = interval(Duration::from_secs(30));
+    ping_interval.tick().await; // skip first immediate tick
+
     loop {
         tokio::select! {
+            _ = ping_interval.tick() => {
+                if socket.send(Message::Ping(vec![0x42])).await.is_err() {
+                    info!("WS ping failed, client disconnected");
+                    agent_handle.abort();
+                    break;
+                }
+            }
             event = rx.recv() => {
                 match event {
                     Some(ev) => {
@@ -135,6 +146,7 @@ pub async fn run_agent_ws(
             }
             msg = socket.next() => {
                 match msg {
+                    Some(Ok(Message::Pong(_))) => {} // keepalive pong, ignore
                     Some(Ok(Message::Close(_))) | None => {
                         info!("WS client closed connection");
                         agent_handle.abort();
