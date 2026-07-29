@@ -6,7 +6,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
-class AgentViewModel(private val repository: AgentRepository) : ViewModel() {
+class AgentViewModel(
+    private val repository: AgentRepository,
+    private val settings: BrainSettings
+) : ViewModel() {
 
     private val _events = MutableStateFlow<List<AgentEvent>>(emptyList())
     val events: StateFlow<List<AgentEvent>> = _events.asStateFlow()
@@ -38,7 +41,7 @@ class AgentViewModel(private val repository: AgentRepository) : ViewModel() {
         wsJob = null
         _isRunning.value = false
         _events.value = _events.value + ErrorEvent(
-            message = "Остановлен пользователем",
+            message = "Stopped by user",
             ts = System.currentTimeMillis() / 1000
         )
     }

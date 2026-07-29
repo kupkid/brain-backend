@@ -8,10 +8,7 @@ import okhttp3.*
 import okio.ByteString
 import java.util.concurrent.TimeUnit
 
-class AgentRepository(
-    private val baseUrl: String,
-    private val apiKey: String? = null
-) {
+class AgentRepository(private val settings: BrainSettings) {
 
     private val client = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -19,10 +16,19 @@ class AgentRepository(
         .build()
 
     fun connect(task: String): Flow<AgentEvent> = callbackFlow {
-        val builder = Request.Builder()
-            .url("ws://$baseUrl/ws/agent")
+        val host = settings.serverHost.value
+        val apiKey = settings.serverApiKey.value
 
-        if (!apiKey.isNullOrBlank()) {
+        if (host.isBlank()) {
+            trySend(ErrorEvent(message = "Server not configured. Open Settings.", ts = System.currentTimeMillis() / 1000))
+            close()
+            return@callbackFlow
+        }
+
+        val builder = Request.Builder()
+            .url("ws://$host/ws/agent")
+
+        if (apiKey.isNotBlank()) {
             builder.addHeader("Authorization", "Bearer $apiKey")
         }
 
@@ -54,7 +60,7 @@ class AgentRepository(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                trySend(ErrorEvent(message = t.message ?: "connection failed"))
+                trySend(ErrorEvent(message = t.message ?: "Connection failed", ts = System.currentTimeMillis() / 1000))
                 close()
             }
         }

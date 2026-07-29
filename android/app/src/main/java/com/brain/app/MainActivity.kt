@@ -3,11 +3,7 @@ package com.brain.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Chat
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.*
+import androidx.compose.animation.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import com.brain.app.ui.AgentChatScreen
@@ -19,72 +15,41 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val settings = BrainSettings(this)
+        val repository = AgentRepository(settings)
 
         setContent {
             BrainTheme {
-                var screen by remember { mutableStateOf("chat") }
+                var showSettings by remember { mutableStateOf(!settings.isConfigured) }
+                val viewModel = remember { AgentViewModel(repository, settings) }
 
-                val host = settings.serverHost.ifBlank { "10.0.2.2:3000" }
-                val apiKey = settings.serverApiKey.ifBlank { null }
-                val repository = remember(host, apiKey) { AgentRepository(host, apiKey) }
-                val viewModel = remember { AgentViewModel(repository) }
+                AnimatedContent(
+                    targetState = showSettings,
+                    transitionSpec = {
+                        if (targetState) slideInHorizontally { it } + fadeIn() togetherWith slideOutHorizontally { -it } + fadeOut()
+                        else slideInHorizontally { -it } + fadeIn() togetherWith slideOutHorizontally { it } + fadeOut()
+                    },
+                    label = "screen"
+                ) { settingsMode ->
+                    if (settingsMode) {
+                        SettingsScreen(
+                            settings = settings,
+                            onBack = { showSettings = false }
+                        )
+                    } else {
+                        val events by viewModel.events.collectAsState()
+                        val isRunning by viewModel.isRunning.collectAsState()
+                        val selectedModel by settings.llmModel
 
-                Scaffold(
-                    bottomBar = {
-                        NavigationBar(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                        ) {
-                            NavigationBarItem(
-                                icon = { Icon(Icons.Default.Chat, null) },
-                                label = { Text("Chat") },
-                                selected = screen == "chat",
-                                onClick = { screen = "chat" },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                                    unselectedIconColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                                    unselectedTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                                )
-                            )
-                            NavigationBarItem(
-                                icon = { Icon(Icons.Default.Settings, null) },
-                                label = { Text("Settings") },
-                                selected = screen == "settings",
-                                onClick = { screen = "settings" },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                                    unselectedIconColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                                    unselectedTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                                )
-                            )
-                        }
-                    }
-                ) { innerPadding ->
-                    when (screen) {
-                        "chat" -> {
-                            val events by viewModel.events.collectAsState()
-                            val isRunning by viewModel.isRunning.collectAsState()
-
-                            Box(modifier = Modifier.padding(innerPadding)) {
-                                AgentChatScreen(
-                                    events = events,
-                                    isRunning = isRunning,
-                                    onSendTask = viewModel::sendTask,
-                                    onStop = viewModel::stopAgent
-                                )
-                            }
-                        }
-                        "settings" -> {
-                            Box(modifier = Modifier.padding(innerPadding)) {
-                                SettingsScreen(
-                                    settings = settings,
-                                    onBack = { screen = "chat" }
-                                )
-                            }
-                        }
+                        AgentChatScreen(
+                            events = events,
+                            isRunning = isRunning,
+                            selectedModel = selectedModel,
+                            availableModels = settings.availableModels.value,
+                            onModelSelected = { settings.saveModels(it, settings.embeddingModel.value) },
+                            onSendTask = { task -> viewModel.sendTask(task) },
+                            onStop = { viewModel.stopAgent() },
+                            onSettings = { showSettings = true }
+                        )
                     }
                 }
             }

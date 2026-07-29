@@ -2,6 +2,7 @@ package com.brain.app
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.compose.runtime.mutableStateOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -24,44 +25,44 @@ data class ProviderConfig(
     val embedding_dimensions: Int = 1024,
 )
 
-class BrainSettings(private val context: Context) {
+class BrainSettings(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("brain_settings", Context.MODE_PRIVATE)
 
-    var serverHost: String
-        get() = prefs.getString("server_host", "") ?: ""
-        set(v) = prefs.edit().putString("server_host", v).apply()
+    val serverHost = mutableStateOf(prefs.getString("server_host", "") ?: "")
+    val serverApiKey = mutableStateOf(prefs.getString("server_api_key", "") ?: "")
+    val providerBaseUrl = mutableStateOf(prefs.getString("provider_base_url", "") ?: "")
+    val providerApiKey = mutableStateOf(prefs.getString("provider_api_key", "") ?: "")
+    val llmModel = mutableStateOf(prefs.getString("llm_model", "") ?: "")
+    val embeddingModel = mutableStateOf(prefs.getString("embedding_model", "") ?: "")
+    val availableModels = mutableStateOf<List<ModelInfo>>(emptyList())
 
-    var serverApiKey: String
-        get() = prefs.getString("server_api_key", "") ?: ""
-        set(v) = prefs.edit().putString("server_api_key", v).apply()
+    fun saveServer(host: String, apiKey: String) {
+        prefs.edit().putString("server_host", host).putString("server_api_key", apiKey).apply()
+        serverHost.value = host
+        serverApiKey.value = apiKey
+    }
 
-    var providerBaseUrl: String
-        get() = prefs.getString("provider_base_url", "") ?: ""
-        set(v) = prefs.edit().putString("provider_base_url", v).apply()
+    fun saveProvider(url: String, apiKey: String) {
+        prefs.edit().putString("provider_base_url", url).putString("provider_api_key", apiKey).apply()
+        providerBaseUrl.value = url
+        providerApiKey.value = apiKey
+    }
 
-    var providerApiKey: String
-        get() = prefs.getString("provider_api_key", "") ?: ""
-        set(v) = prefs.edit().putString("provider_api_key", v).apply()
-
-    var llmModel: String
-        get() = prefs.getString("llm_model", "") ?: ""
-        set(v) = prefs.edit().putString("llm_model", v).apply()
-
-    var embeddingModel: String
-        get() = prefs.getString("embedding_model", "") ?: ""
-        set(v) = prefs.edit().putString("embedding_model", v).apply()
+    fun saveModels(llm: String, embedding: String) {
+        prefs.edit().putString("llm_model", llm).putString("embedding_model", embedding).apply()
+        llmModel.value = llm
+        embeddingModel.value = embedding
+    }
 
     val isConfigured: Boolean
-        get() = serverHost.isNotBlank() && serverApiKey.isNotBlank()
+        get() = serverHost.value.isNotBlank() && serverApiKey.value.isNotBlank()
 
-    fun serverUrl(): String = "http://$serverHost"
+    fun serverUrl(): String = "http://${serverHost.value}"
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
-
-    private val json = Json { ignoreUnknownKeys = true }
 
     suspend fun testConnection(): Result<String> = withContext(Dispatchers.IO) {
         try {
@@ -70,11 +71,8 @@ class BrainSettings(private val context: Context) {
                 .get()
                 .build()
             val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                Result.success("connected")
-            } else {
-                Result.failure(Exception("HTTP ${response.code}"))
-            }
+            if (response.isSuccessful) Result.success("Connected")
+            else Result.failure(Exception("HTTP ${response.code}"))
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -85,7 +83,7 @@ class BrainSettings(private val context: Context) {
             val body = JSONObject().put("path", "/v1/models")
             val request = Request.Builder()
                 .url("${serverUrl()}/v1/settings/provider/proxy")
-                .addHeader("Authorization", "Bearer $serverApiKey")
+                .addHeader("Authorization", "Bearer ${serverApiKey.value}")
                 .post(body.toString().toRequestBody("application/json".toMediaType()))
                 .build()
             val response = client.newCall(request).execute()
@@ -95,12 +93,12 @@ class BrainSettings(private val context: Context) {
             val models = mutableListOf<ModelInfo>()
             for (i in 0 until data.length()) {
                 val m = data.getJSONObject(i)
-                val owned = m.optString("owned_by", "")
                 models.add(ModelInfo(
                     id = m.getString("id"),
-                    ownedBy = owned,
+                    ownedBy = m.optString("owned_by", ""),
                 ))
             }
+            availableModels.value = models
             Result.success(models)
         } catch (e: Exception) {
             Result.failure(e)
@@ -119,30 +117,12 @@ class BrainSettings(private val context: Context) {
             }
             val request = Request.Builder()
                 .url("${serverUrl()}/v1/settings/provider")
-                .addHeader("Authorization", "Bearer $serverApiKey")
+                .addHeader("Authorization", "Bearer ${serverApiKey.value}")
                 .put(body.toString().toRequestBody("application/json".toMediaType()))
                 .build()
             val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                Result.success(Unit)
-            } else {
-                Result.failure(Exception("HTTP ${response.code}: ${response.body?.string()}"))
-            }
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    suspend fun getProviderStatus(): Result<JSONObject> = withContext(Dispatchers.IO) {
-        try {
-            val request = Request.Builder()
-                .url("${serverUrl()}/v1/settings/provider")
-                .addHeader("Authorization", "Bearer $serverApiKey")
-                .get()
-                .build()
-            val response = client.newCall(request).execute()
-            val text = response.body?.string() ?: "{}"
-            Result.success(JSONObject(text))
+            if (response.isSuccessful) Result.success(Unit)
+            else Result.failure(Exception("HTTP ${response.code}"))
         } catch (e: Exception) {
             Result.failure(e)
         }
