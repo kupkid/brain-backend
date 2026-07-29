@@ -63,6 +63,8 @@ pub struct LlmToolResult {
     pub content: String,
     pub tool_calls: Vec<LlmToolCall>,
     pub tokens_used: usize,
+    pub tokens_input: usize,
+    pub tokens_output: usize,
 }
 
 #[async_trait]
@@ -82,10 +84,13 @@ pub trait LlmProvider: Send + Sync {
         temperature: Option<f32>,
     ) -> Result<LlmToolResult, LlmError> {
         let resp = self.complete(messages, max_tokens, temperature).await?;
+        let total = resp.tokens_used;
         Ok(LlmToolResult {
             content: resp.content,
             tool_calls: Vec::new(),
-            tokens_used: resp.tokens_used,
+            tokens_used: total,
+            tokens_input: total * 7 / 10,
+            tokens_output: total * 3 / 10,
         })
     }
 

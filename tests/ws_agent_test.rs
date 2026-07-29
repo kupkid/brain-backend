@@ -68,6 +68,8 @@ impl LlmProvider for MockLlm {
                     arguments: serde_json::json!({"path": "."}),
                 }],
                 tokens_used: 150,
+                tokens_input: 100,
+                tokens_output: 50,
             })
         } else {
             // Second call: final response (no tools)
@@ -75,6 +77,8 @@ impl LlmProvider for MockLlm {
                 content: "Задача выполнена: рабочая директория проверена".to_string(),
                 tool_calls: vec![],
                 tokens_used: 80,
+                tokens_input: 50,
+                tokens_output: 30,
             })
         }
     }

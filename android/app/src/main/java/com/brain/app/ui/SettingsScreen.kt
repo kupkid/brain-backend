@@ -1,13 +1,11 @@
 package com.brain.app.ui
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -16,15 +14,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brain.app.BrainSettings
-import com.brain.app.ModelInfo
-import com.brain.app.ProviderConfig
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -36,32 +32,9 @@ fun SettingsScreen(settings: BrainSettings, onBack: () -> Unit, onProviders: () 
 
     var serverHost by remember { mutableStateOf(settings.serverHost.value) }
     var serverApiKey by remember { mutableStateOf(settings.serverApiKey.value) }
-    var providerUrl by remember { mutableStateOf(settings.providerBaseUrl.value) }
-    var providerApiKey by remember { mutableStateOf(settings.providerApiKey.value) }
-    var llmModel by remember { mutableStateOf(settings.llmModel.value) }
-    var embeddingModel by remember { mutableStateOf(settings.embeddingModel.value) }
-
     var testing by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
-    var fetchingModels by remember { mutableStateOf(false) }
-    var models by remember { mutableStateOf<List<ModelInfo>>(emptyList()) }
-    var saving by remember { mutableStateOf(false) }
-    var saved by remember { mutableStateOf(false) }
-    var lastFetchedUrl by remember { mutableStateOf("") }
-
-    LaunchedEffect(providerUrl, providerApiKey) {
-        if (providerUrl.isNotBlank() && providerApiKey.isNotBlank() && providerUrl != lastFetchedUrl) {
-            delay(1500)
-            if (providerUrl.isNotBlank() && providerApiKey.isNotBlank()) {
-                fetchingModels = true
-                settings.saveProvider(providerUrl, providerApiKey)
-                val result = settings.fetchModels()
-                models = result.getOrNull() ?: emptyList()
-                lastFetchedUrl = providerUrl
-                fetchingModels = false
-            }
-        }
-    }
+    var showServerDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -70,154 +43,247 @@ fun SettingsScreen(settings: BrainSettings, onBack: () -> Unit, onProviders: () 
                 navigationIcon = {
                     IconButton(onClick = {
                         settings.saveServer(serverHost, serverApiKey)
-                        settings.saveProvider(providerUrl, providerApiKey)
-                        settings.saveModels(llmModel, embeddingModel)
                         onBack()
                     }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         },
-        containerColor = MaterialTheme.colorScheme.surface
+        containerColor = Color(0xFF0A0A0A)
     ) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(scrollState).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(scrollState)
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("Settings", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+            Text(
+                "Настройки",
+                fontSize = 32.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
 
-            // ── Server card ──
-            SettingsCard(title = "Server", subtitle = "Brain backend connection") {
-                OutlinedTextField(serverHost, { serverHost = it; testResult = null }, Modifier.fillMaxWidth(), label = { Text("Host:Port") }, placeholder = { Text("your-server.com:3000") }, leadingIcon = { Icon(Icons.Default.Dns, null, Modifier.size(20.dp)) }, singleLine = true, shape = RoundedCornerShape(12.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(serverApiKey, { serverApiKey = it; testResult = null }, Modifier.fillMaxWidth(), label = { Text("API Key") }, placeholder = { Text("Bearer token") }, leadingIcon = { Icon(Icons.Default.Key, null, Modifier.size(20.dp)) }, visualTransformation = PasswordVisualTransformation(), singleLine = true, shape = RoundedCornerShape(12.dp))
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton(onClick = {
-                        testing = true; testResult = null
-                        scope.launch {
-                            settings.saveServer(serverHost, serverApiKey)
-                            val result = settings.testConnection()
-                            testResult = if (result.isSuccess) true to "Connected" else false to (result.exceptionOrNull()?.message ?: "error")
-                            testing = false
-                        }
-                    }, enabled = !testing && serverHost.isNotBlank() && serverApiKey.isNotBlank(), modifier = Modifier.height(36.dp), shape = RoundedCornerShape(10.dp), contentPadding = PaddingValues(horizontal = 16.dp)) {
-                        if (testing) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                        else { Icon(Icons.Default.CheckCircle, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Test", style = MaterialTheme.typography.labelMedium) }
-                    }
-                    testResult?.let { (ok, msg) -> Text(msg, color = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                }
-            }
+            // ── Section: Общие настройки ──
+            SectionHeader("Общие настройки")
 
-            // ── Provider card ──
-            SettingsCard(title = "LLM Provider", subtitle = "Configure AI provider") {
-                OutlinedTextField(providerUrl, { providerUrl = it; models = emptyList(); lastFetchedUrl = "" }, Modifier.fillMaxWidth(), label = { Text("Base URL") }, placeholder = { Text("https://api.openai.com/v1") }, leadingIcon = { Icon(Icons.Default.Link, null, Modifier.size(20.dp)) }, singleLine = true, shape = RoundedCornerShape(12.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(providerApiKey, { providerApiKey = it; models = emptyList(); lastFetchedUrl = "" }, Modifier.fillMaxWidth(), label = { Text("API Key") }, placeholder = { Text("sk-...") }, leadingIcon = { Icon(Icons.Default.VpnKey, null, Modifier.size(20.dp)) }, visualTransformation = PasswordVisualTransformation(), singleLine = true, shape = RoundedCornerShape(12.dp))
-                Spacer(Modifier.height(8.dp))
+            SettingsItem(
+                icon = Icons.Default.Palette,
+                iconBg = Color(0xFF2A2A2A),
+                title = "Тема",
+                subtitle = "Тёмная",
+                onClick = { /* TODO: theme picker */ }
+            )
 
-                AnimatedVisibility(visible = fetchingModels, enter = expandVertically(), exit = shrinkVertically()) {
-                    Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Text("Loading models...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                if (models.isNotEmpty() && !fetchingModels) {
-                    Text("${models.size} models available", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+            SettingsItem(
+                icon = Icons.Default.Tune,
+                iconBg = Color(0xFF2A2A2A),
+                title = "Настройки",
+                subtitle = "Сервер, подключение и общие параметры",
+                onClick = { showServerDialog = true }
+            )
 
-                ModelDropdown("Chat Model", models, llmModel, { llmModel = it }, "gpt-4o-mini")
-                Spacer(Modifier.height(8.dp))
-                ModelDropdown("Embedding Model", models, embeddingModel, { embeddingModel = it }, "text-embedding-3-small")
+            SettingsItem(
+                icon = Icons.Default.SmartToy,
+                iconBg = Color(0xFF2A2A2A),
+                title = "Ассистент",
+                subtitle = "Настроить модель и поведение агента",
+                onClick = { /* TODO: agent settings */ }
+            )
 
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = onProviders,
-                    modifier = Modifier.fillMaxWidth().height(40.dp),
-                    shape = RoundedCornerShape(12.dp),
-                ) {
-                    Icon(Icons.Default.Cloud, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Manage Providers")
-                }
-            }
+            Spacer(Modifier.height(8.dp))
 
-            // ── Save button ──
-            Button(onClick = {
-                saving = true; saved = false
-                scope.launch {
-                    settings.saveServer(serverHost, serverApiKey)
-                    settings.saveProvider(providerUrl, providerApiKey)
-                    settings.saveModels(llmModel, embeddingModel)
-                    settings.saveProviderConfig(ProviderConfig(base_url = providerUrl, api_key = providerApiKey, llm_model = llmModel, embedding_model = embeddingModel))
-                    saving = false; saved = true; delay(2000); saved = false
-                }
-            }, enabled = !saving && serverHost.isNotBlank() && providerUrl.isNotBlank() && llmModel.isNotBlank() && embeddingModel.isNotBlank(), modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(12.dp)) {
-                when {
-                    saving -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                    saved -> { Icon(Icons.Default.Check, null); Spacer(Modifier.width(6.dp)); Text("Saved") }
-                    else -> Text("Save")
-                }
-            }
+            // ── Section: Модели и службы ──
+            SectionHeader("Модели и службы")
+
+            SettingsItem(
+                icon = Icons.Default.AutoAwesome,
+                iconBg = Color(0xFF2A2A2A),
+                title = "Модель по умолчанию",
+                subtitle = "Установить модель для каждой функции",
+                onClick = { /* TODO: default model */ }
+            )
+
+            SettingsItem(
+                icon = Icons.Default.Cloud,
+                iconBg = Color(0xFF1A3A2A),
+                title = "Провайдеры",
+                subtitle = "Настроить поставщиков ИИ",
+                onClick = onProviders
+            )
+
+            SettingsItem(
+                icon = Icons.Default.Search,
+                iconBg = Color(0xFF2A2A2A),
+                title = "Служба поиска",
+                subtitle = "Настроить службу поиска",
+                onClick = { /* TODO */ }
+            )
+
+            SettingsItem(
+                icon = Icons.Default.RecordVoiceOver,
+                iconBg = Color(0xFF2A2A2A),
+                title = "Голос",
+                subtitle = "Синтез и распознавание речи",
+                onClick = { /* TODO */ }
+            )
 
             Spacer(Modifier.height(32.dp))
         }
     }
+
+    // ── Server Config Dialog ──
+    if (showServerDialog) {
+        ServerConfigDialog(
+            host = serverHost,
+            apiKey = serverApiKey,
+            testing = testing,
+            testResult = testResult,
+            onHostChange = { serverHost = it; testResult = null },
+            onApiKeyChange = { serverApiKey = it; testResult = null },
+            onTest = {
+                testing = true; testResult = null
+                scope.launch {
+                    settings.saveServer(serverHost, serverApiKey)
+                    val result = settings.testConnection()
+                    testResult = if (result.isSuccess) true to "Подключено"
+                    else false to (result.exceptionOrNull()?.message ?: "error")
+                    testing = false
+                }
+            },
+            onSave = {
+                settings.saveServer(serverHost, serverApiKey)
+                showServerDialog = false
+            },
+            onDismiss = { showServerDialog = false }
+        )
+    }
 }
 
 @Composable
-fun SettingsCard(title: String, subtitle: String, content: @Composable ColumnScope.() -> Unit) {
+fun SectionHeader(title: String) {
+    Text(
+        title,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Medium,
+        color = Color(0xFF666666),
+        modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 4.dp)
+    )
+}
+
+@Composable
+fun SettingsItem(
+    icon: ImageVector,
+    iconBg: Color,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A)),
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(title, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-            Text(subtitle, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(12.dp))
-            content()
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(iconBg),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, null, tint = Color(0xFFBBBBBB), modifier = Modifier.size(22.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                Text(subtitle, color = Color(0xFF888888), fontSize = 13.sp, maxLines = 1)
+            }
+            Icon(
+                Icons.Default.ChevronRight, null,
+                tint = Color(0xFF444444), modifier = Modifier.size(20.dp)
+            )
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ModelDropdown(label: String, models: List<ModelInfo>, selected: String, onSelect: (String) -> Unit, placeholder: String) {
-    var expanded by remember { mutableStateOf(false) }
-    Column {
-        OutlinedTextField(
-            value = selected, onValueChange = onSelect,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text(label) }, placeholder = { Text(placeholder) },
-            leadingIcon = { Icon(Icons.Default.SmartToy, null, Modifier.size(20.dp)) },
-            trailingIcon = {
-                if (models.isNotEmpty()) {
-                    IconButton(onClick = { expanded = !expanded }, Modifier.size(32.dp)) {
-                        Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, Modifier.size(20.dp))
+fun ServerConfigDialog(
+    host: String,
+    apiKey: String,
+    testing: Boolean,
+    testResult: Pair<Boolean, String>?,
+    onHostChange: (String) -> Unit,
+    onApiKeyChange: (String) -> Unit,
+    onTest: () -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Сервер", fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    host, onHostChange,
+                    Modifier.fillMaxWidth(),
+                    label = { Text("Host:Port") },
+                    placeholder = { Text("your-server.com:3000") },
+                    leadingIcon = { Icon(Icons.Default.Dns, null, Modifier.size(20.dp)) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                )
+                OutlinedTextField(
+                    apiKey, onApiKeyChange,
+                    Modifier.fillMaxWidth(),
+                    label = { Text("API Key") },
+                    placeholder = { Text("Bearer token") },
+                    leadingIcon = { Icon(Icons.Default.Key, null, Modifier.size(20.dp)) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilledTonalButton(
+                        onClick = onTest,
+                        enabled = !testing && host.isNotBlank() && apiKey.isNotBlank(),
+                        modifier = Modifier.height(36.dp),
+                        shape = RoundedCornerShape(10.dp),
+                    ) {
+                        if (testing) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        else Text("Тест", style = MaterialTheme.typography.labelMedium)
                     }
-                }
-            },
-            singleLine = true, shape = RoundedCornerShape(12.dp)
-        )
-        AnimatedVisibility(visible = expanded && models.isNotEmpty(), enter = expandVertically(), exit = shrinkVertically()) {
-            Card(Modifier.fillMaxWidth().padding(top = 4.dp).heightIn(max = 200.dp), RoundedCornerShape(12.dp), CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                Column(Modifier.verticalScroll(rememberScrollState())) {
-                    models.forEach { model ->
-                        Surface(
-                            Modifier.fillMaxWidth().clickable { onSelect(model.id); expanded = false },
-                            color = if (model.id == selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surfaceVariant
-                        ) {
-                            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                                Text(model.id, style = MaterialTheme.typography.bodyMedium, color = if (model.id == selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                if (model.ownedBy.isNotEmpty()) Text(model.ownedBy, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
+                    testResult?.let { (ok, msg) ->
+                        Text(msg, color = if (ok) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
-        }
-    }
+        },
+        confirmButton = {
+            Button(onClick = onSave, enabled = host.isNotBlank() && apiKey.isNotBlank(),
+                shape = RoundedCornerShape(10.dp)) {
+                Text("Сохранить")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, shape = RoundedCornerShape(10.dp)) {
+                Text("Отмена")
+            }
+        },
+        shape = RoundedCornerShape(20.dp),
+    )
 }

@@ -208,11 +208,8 @@ impl AgentLoop {
             };
             let _llm_elapsed = llm_start.elapsed();
             total_tokens += result.tokens_used;
-            // Rough split: ~70% input, ~30% output (Cohere doesn't always provide breakdown)
-            let est_input = (result.tokens_used as f64 * 0.7) as usize;
-            let est_output = result.tokens_used - est_input;
-            tokens_input_total += est_input;
-            tokens_output_total += est_output;
+            tokens_input_total += result.tokens_input;
+            tokens_output_total += result.tokens_output;
 
             if !result.tool_calls.is_empty() {
                 // Emit thought if LLM produced text content

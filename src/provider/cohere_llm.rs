@@ -75,6 +75,8 @@ struct ResponseMessage {
 #[derive(Deserialize)]
 struct ChatUsage {
     total_tokens: Option<usize>,
+    prompt_tokens: Option<usize>,
+    completion_tokens: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -174,7 +176,10 @@ impl CohereLlm {
         };
 
         let response = self.send_request(request).await?;
-        let usage = response.usage.and_then(|u| u.total_tokens).unwrap_or(0);
+        let usage = response.usage.as_ref();
+        let total_tokens = usage.and_then(|u| u.total_tokens).unwrap_or(0);
+        let prompt_tokens = usage.and_then(|u| u.prompt_tokens).unwrap_or(total_tokens * 7 / 10);
+        let completion_tokens = usage.and_then(|u| u.completion_tokens).unwrap_or(total_tokens - prompt_tokens);
 
         let choice = response
             .choices
@@ -199,16 +204,18 @@ impl CohereLlm {
             .collect();
 
         info!(
-            "LLM complete: model={}, tokens={}, tool_calls={}",
+            "LLM complete: model={}, tokens={} (in={prompt_tokens}, out={completion_tokens}), tool_calls={}",
             self.model,
-            usage,
+            total_tokens,
             tool_calls.len()
         );
 
         Ok(LlmToolResult {
             content,
             tool_calls,
-            tokens_used: usage,
+            tokens_used: total_tokens,
+            tokens_input: prompt_tokens,
+            tokens_output: completion_tokens,
         })
     }
 }
