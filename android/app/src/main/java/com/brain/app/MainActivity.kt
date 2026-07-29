@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.brain.app.ui.AgentChatScreen
+import com.brain.app.ui.ModelEditorScreen
+import com.brain.app.ui.ProviderDetailScreen
 import com.brain.app.ui.ProvidersScreen
 import com.brain.app.ui.SettingsScreen
 import com.brain.app.ui.theme.BrainTheme
@@ -42,12 +44,36 @@ class MainActivity : ComponentActivity() {
                 )
                 var showSettings by remember { mutableStateOf(!settings.isConfigured) }
                 var showProviders by remember { mutableStateOf(false) }
+                var providerDetailId by remember { mutableStateOf<Long?>(null) }
+                var providerDetailName by remember { mutableStateOf("") }
+                var modelEditProviderId by remember { mutableStateOf<Long?>(null) }
+                var modelEditId by remember { mutableStateOf("") }
 
-                if (showProviders) {
-                    ProvidersScreen(settings = settings, onBack = { showProviders = false })
-                } else if (showSettings) {
-                    SettingsScreen(settings = settings, onBack = { showSettings = false }, onProviders = { showProviders = true })
-                } else {
+                when {
+                    modelEditProviderId != null -> ModelEditorScreen(
+                        settings = settings,
+                        providerId = modelEditProviderId!!,
+                        modelId = modelEditId,
+                        onBack = { modelEditProviderId = null; modelEditId = "" },
+                    )
+                    providerDetailId != null -> ProviderDetailScreen(
+                        settings = settings,
+                        providerId = providerDetailId!!,
+                        providerName = providerDetailName,
+                        onBack = { providerDetailId = null; providerDetailName = "" },
+                        onModelEdit = { pid, mid -> modelEditProviderId = pid; modelEditId = mid },
+                    )
+                    showProviders -> ProvidersScreen(
+                        settings = settings,
+                        onBack = { showProviders = false },
+                        onProviderClick = { id, name -> providerDetailId = id; providerDetailName = name },
+                    )
+                    showSettings -> SettingsScreen(
+                        settings = settings,
+                        onBack = { showSettings = false },
+                        onProviders = { showProviders = true },
+                    )
+                    else -> {
                     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
                     val scope = rememberCoroutineScope()
 

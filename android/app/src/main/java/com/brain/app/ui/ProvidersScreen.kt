@@ -71,6 +71,7 @@ data class ProviderModel(
 fun ProvidersScreen(
     settings: BrainSettings,
     onBack: () -> Unit,
+    onProviderClick: (Long, String) -> Unit = { _, _ -> },
 ) {
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
@@ -264,6 +265,7 @@ fun ProvidersScreen(
                     onToggleExpand = {
                         expandedId = if (expandedId == provider.id) null else provider.id
                     },
+                    onClick = { onProviderClick(provider.id, provider.name) },
                     onFetchModels = { fetchModels(provider.id) },
                     onDelete = { deleteProvider(provider.id) },
                     fetchingModels = fetchingModelsId == provider.id,
@@ -301,6 +303,7 @@ private fun ProviderCard(
     provider: ServerProvider,
     expanded: Boolean,
     onToggleExpand: () -> Unit,
+    onClick: () -> Unit,
     onFetchModels: () -> Unit,
     onDelete: () -> Unit,
     fetchingModels: Boolean,
@@ -308,7 +311,7 @@ private fun ProviderCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onToggleExpand() },
+            .clickable { if (expanded) onClick() else onToggleExpand() },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (provider.enabled) {
