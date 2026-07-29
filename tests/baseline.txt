@@ -1,0 +1,21 @@
+=== Brain Agent Baseline Benchmark ===
+Date: 2026-07-29T08:37:14+00:00
+
+--- simple ---
+  Time: 2373ms
+  Tokens: 1731
+  LLM calls: 3
+  Peak RSS: 1936KB
+
+--- medium ---
+  Time: 14736ms
+  Tokens: 13269
+  LLM calls: 19
+  Peak RSS: 1936KB
+
+--- hard ---
+  Time: 7419ms
+  Tokens: 6819
+  LLM calls: 10
+  Peak RSS: 1892KB
+
