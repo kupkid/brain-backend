@@ -9,6 +9,11 @@ use brain_backend::api::AppState;
 use brain_backend::agent::EventBus;
 use brain_backend::db;
 use brain_backend::vault;
+use brain_backend::provider::cohere_llm::CohereLlm;
+use brain_backend::provider::openai_compat::OpenAiCompatLlm;
+use brain_backend::provider::cohere_embedding::CohereEmbedding;
+use brain_backend::provider::embedding::EmbeddingProvider;
+use brain_backend::provider::llm::LlmProvider;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -63,11 +68,42 @@ async fn main() -> Result<()> {
         tracing::info!("created default embedding collection");
     }
 
+    // Create embedding provider (always Cohere for now)
+    let emb_key = std::env::var("COHERE_API_KEY")
+        .or_else(|_| std::env::var("LLM_API_KEY"))
+        .expect("COHERE_API_KEY or LLM_API_KEY required for embeddings");
+    let embedding: Arc<dyn EmbeddingProvider> = Arc::new(CohereEmbedding::new(emb_key, None));
+
+    // Create LLM factory (closure that creates provider + attaches tools)
+    let provider_type = std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "cohere".to_string());
+    let llm_factory: brain_backend::ws_agent::LlmFactory = match provider_type.as_str() {
+        "openai_compat" => {
+            let api_key = std::env::var("LLM_API_KEY").expect("LLM_API_KEY required");
+            let model = std::env::var("LLM_MODEL").expect("LLM_MODEL required");
+            let base_url = std::env::var("LLM_BASE_URL").expect("LLM_BASE_URL required");
+            tracing::info!("WS agent LLM: OpenAI-compatible ({model}, {base_url})");
+            Box::new(move |tools| {
+                let provider = OpenAiCompatLlm::new(api_key.clone(), model.clone(), base_url.clone());
+                Arc::new(provider.with_tools(tools)) as Arc<dyn LlmProvider>
+            })
+        }
+        _ => {
+            let api_key = std::env::var("COHERE_API_KEY").expect("COHERE_API_KEY required");
+            tracing::info!("WS agent LLM: Cohere (command-a-plus-05-2026)");
+            Box::new(move |tools| {
+                let provider = CohereLlm::new(api_key.clone(), None, None);
+                Arc::new(provider.with_tools(tools)) as Arc<dyn LlmProvider>
+            })
+        }
+    };
+
     let state = Arc::new(AppState {
         config: config.clone(),
         conn: Mutex::new(conn),
         master_key: Mutex::new(master_key),
         event_bus: Arc::new(EventBus::new(1024)),
+        llm_factory: Arc::new(llm_factory),
+        embedding,
     });
 
     let cors = CorsLayer::new()

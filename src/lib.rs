@@ -9,3 +9,4 @@ pub mod provider;
 pub mod run;
 pub mod vault;
 pub mod workspace;
+pub mod ws_agent;

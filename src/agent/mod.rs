@@ -10,6 +10,7 @@ pub mod tools_todo;
 pub mod todo;
 
 pub use agent_loop::AgentLoop;
+pub use agent_loop::{WsAgentEvent, AgentMessage};
 pub use config::AgentConfig;
 pub use events::{AgentEvent, EventBus, SharedEventBus};
 pub use tool_trait::{Tool, ToolOutput, ToolImportance};

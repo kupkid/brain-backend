@@ -20,18 +20,24 @@ use crate::run::{RunRepository, ToolRepository, RunContextRepository, EventStore
 use crate::workspace::{FsWorkspaceBackend, WorkspaceBackend};
 use crate::project::ProjectRepository;
 use crate::agent::SharedEventBus;
+use crate::ws_agent::LlmFactory;
+use crate::provider::embedding::EmbeddingProvider;
 
 pub struct AppState {
     pub config: AppConfig,
     pub conn: Mutex<rusqlite::Connection>,
     pub master_key: Mutex<[u8; 32]>,
     pub event_bus: SharedEventBus,
+    pub llm_factory: Arc<LlmFactory>,
+    pub embedding: Arc<dyn EmbeddingProvider>,
 }
 
 pub fn create_router(state: Arc<AppState>) -> Router {
     Router::new()
         // Health
         .route("/health", get(health))
+        // WebSocket Agent
+        .route("/ws/agent", get(ws_agent_handler))
         // Projects
         .route("/v1/projects", get(list_projects).post(create_project))
         .route("/v1/projects/:id", get(get_project).delete(delete_project))
@@ -816,6 +822,20 @@ async fn list_run_todos(
         }
         Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
     }
+}
+
+// === WebSocket Agent — Task Execution ===
+
+async fn ws_agent_handler(
+    State(state): State<Arc<AppState>>,
+    ws: WebSocketUpgrade,
+) -> impl IntoResponse {
+    let factory = Arc::clone(&state.llm_factory);
+    let embedding = Arc::clone(&state.embedding);
+    let data_dir = state.config.data_dir.clone();
+    ws.on_upgrade(move |socket| {
+        crate::ws_agent::run_agent_ws(socket, factory, embedding, data_dir)
+    })
 }
 
 // === WebSocket — Real-time Agent Events ===

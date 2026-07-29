@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
+use tokio::sync::mpsc;
 use tracing::{info, warn};
 
 use crate::provider::llm::{LlmMessage, LlmProvider};
@@ -11,6 +12,25 @@ use super::config::AgentConfig;
 use super::tools::ToolBox;
 use super::tool_trait::{ToolOutput, ToolImportance};
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum WsAgentEvent {
+    Thought { text: String, ts: i64 },
+    ToolCall { tool: String, args: serde_json::Value, call_id: String, ts: i64 },
+    ToolResult { call_id: String, success: bool, summary: String, ts: i64 },
+    TodoUpdate { todos: Vec<TodoItem>, ts: i64 },
+    FileRead { path: String, text: String, ts: i64 },
+    Done { summary: String, total_tokens: usize, total_calls: u32, ts: i64 },
+    Error { message: String, ts: i64 },
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TodoItem {
+    pub id: String,
+    pub text: String,
+    pub status: String,
+}
+
 pub struct AgentLoop {
     llm: Arc<dyn LlmProvider>,
     #[allow(dead_code)]
@@ -19,6 +39,7 @@ pub struct AgentLoop {
     tools: ToolBox,
     config: AgentConfig,
     run_id: i64,
+    event_tx: Option<mpsc::Sender<WsAgentEvent>>,
 }
 
 #[derive(Debug, Clone)]
@@ -52,10 +73,25 @@ impl AgentLoop {
         config: AgentConfig,
         run_id: i64,
     ) -> Self {
-        Self { llm, embedding, conn, tools, config, run_id }
+        Self { llm, embedding, conn, tools, config, run_id, event_tx: None }
+    }
+
+    pub fn with_event_sender(mut self, tx: mpsc::Sender<WsAgentEvent>) -> Self {
+        self.event_tx = Some(tx);
+        self
     }
 
     pub fn tools_ref(&self) -> &ToolBox { &self.tools }
+
+    fn emit(&self, event: WsAgentEvent) {
+        if let Some(tx) = &self.event_tx {
+            let _ = tx.try_send(event);
+        }
+    }
+
+    fn ts() -> i64 {
+        chrono::Utc::now().timestamp()
+    }
 
     pub async fn process_message(
         &self,
@@ -97,6 +133,7 @@ impl AgentLoop {
                 Ok(r) => r,
                 Err(e) => {
                     warn!("LLM error: {e}");
+                    self.emit(WsAgentEvent::Error { message: e.to_string(), ts: Self::ts() });
                     return AgentResponse {
                         content: format!("Error: {e}"),
                         tool_results: all_results,
@@ -107,6 +144,11 @@ impl AgentLoop {
             total_tokens += result.tokens_used;
 
             if !result.tool_calls.is_empty() {
+                // Emit thought if LLM produced text content
+                if !result.content.is_empty() {
+                    self.emit(WsAgentEvent::Thought { text: result.content.clone(), ts: Self::ts() });
+                }
+
                 let tool_calls_json: Vec<serde_json::Value> = result.tool_calls.iter().map(|tc| {
                     serde_json::json!({
                         "id": tc.id,
@@ -125,11 +167,60 @@ impl AgentLoop {
                 });
 
                 for tc in &result.tool_calls {
+                    let call_id = format!("t{tool_call_count}");
                     info!("tool call: {}({})", tc.name, tc.arguments);
+
+                    // Emit tool_call
+                    let args_val: serde_json::Value = tc.arguments.clone();
+                    self.emit(WsAgentEvent::ToolCall {
+                        tool: tc.name.clone(),
+                        args: args_val.clone(),
+                        call_id: call_id.clone(),
+                        ts: Self::ts(),
+                    });
+
+                    // Execute tool
                     let output = match self.tools.call(&tc.name, &tc.arguments) {
                         Ok(o) => o,
                         Err(e) => ToolOutput::error(&e),
                     };
+
+                    // Emit tool_result
+                    let summary = output.summary.clone().unwrap_or_else(|| {
+                        match &output.result {
+                            serde_json::Value::String(s) => {
+                                if s.len() > 200 { format!("{}...", &s[..200]) } else { s.clone() }
+                            }
+                            other => {
+                                let s = other.to_string();
+                                if s.len() > 200 { format!("{}...", &s[..200]) } else { s }
+                            }
+                        }
+                    });
+                    self.emit(WsAgentEvent::ToolResult {
+                        call_id: call_id.clone(),
+                        success: !output.result.is_null(),
+                        summary,
+                        ts: Self::ts(),
+                    });
+
+                    // Emit file_read if this was a read_file call
+                    if tc.name == "read_file" {
+                        let text = match &output.result {
+                            serde_json::Value::String(s) => s.clone(),
+                            other => other.to_string(),
+                        };
+                        let path = args_val.get("path")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+                        self.emit(WsAgentEvent::FileRead { path, text, ts: Self::ts() });
+                    }
+
+                    // Emit todo_update if this was a todo tool
+                    if tc.name.starts_with("todo_") {
+                        self.emit_todo_state();
+                    }
 
                     let content_for_llm = match &output.summary {
                         Some(s) => s.clone(),
@@ -166,7 +257,14 @@ impl AgentLoop {
                     messages[0].content = "Continue. Use tools as needed.".to_string();
                 }
             } else {
+                // Final response — no more tool calls
                 self.store_memory(user_message, &result.content).await;
+                self.emit(WsAgentEvent::Done {
+                    summary: result.content.clone(),
+                    total_tokens,
+                    total_calls: tool_call_count,
+                    ts: Self::ts(),
+                });
                 return AgentResponse {
                     content: result.content,
                     tool_results: all_results,
@@ -176,15 +274,38 @@ impl AgentLoop {
         }
     }
 
-    fn collapse_old_tool_calls(&self, messages: &mut Vec<LlmMessage>) {
-        // Find the system message (index 0), then collapse everything between
-        // system and the last MAX_TOOL_HISTORY tool-call pairs into a summary.
-        // Keep: system, user, last MAX_TOOL_HISTORY*2 messages (assistant+tool pairs), plus any new ones
-        let system_len = 1; // system message at index 0
-        let user_len = if messages.len() > 1 && messages[1].role == "user" { 1 } else { 0 };
-        let keep_from = system_len + user_len; // start of prunable region
+    fn emit_todo_state(&self) {
+        let conn = match self.conn.lock() {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        use rusqlite::params;
+        let mut stmt = match conn.prepare(
+            "SELECT task_id, title, status FROM agent_todos WHERE run_id = ?1 ORDER BY created_at"
+        ) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        let todos: Vec<TodoItem> = stmt.query_map(params![self.run_id], |r| {
+            Ok(TodoItem {
+                id: r.get(0)?,
+                text: r.get(1)?,
+                status: r.get(2)?,
+            })
+        })
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| r.ok())
+        .collect();
+        self.emit(WsAgentEvent::TodoUpdate { todos, ts: Self::ts() });
+    }
 
-        // Count tool result messages from the end
+    fn collapse_old_tool_calls(&self, messages: &mut Vec<LlmMessage>) {
+        let system_len = 1;
+        let user_len = if messages.len() > 1 && messages[1].role == "user" { 1 } else { 0 };
+        let keep_from = system_len + user_len;
+
         let mut tool_result_count = 0usize;
         for msg in messages.iter().rev() {
             if msg.role == "tool" || msg.role == "assistant" {
@@ -199,7 +320,6 @@ impl AgentLoop {
         let collapse_end = messages.len() - Self::MAX_TOOL_HISTORY * 2;
         if collapse_end <= keep_from { return; }
 
-        // Count how many tool calls we're collapsing
         let collapsed_count = messages[keep_from..collapse_end].iter()
             .filter(|m| m.role == "tool")
             .count();
