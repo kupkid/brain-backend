@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(settings: BrainSettings, onBack: () -> Unit) {
+fun SettingsScreen(settings: BrainSettings, onBack: () -> Unit, onProviders: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
@@ -131,6 +131,17 @@ fun SettingsScreen(settings: BrainSettings, onBack: () -> Unit) {
                 ModelDropdown("Chat Model", models, llmModel, { llmModel = it }, "gpt-4o-mini")
                 Spacer(Modifier.height(8.dp))
                 ModelDropdown("Embedding Model", models, embeddingModel, { embeddingModel = it }, "text-embedding-3-small")
+
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onProviders,
+                    modifier = Modifier.fillMaxWidth().height(40.dp),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Icon(Icons.Default.Cloud, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Manage Providers")
+                }
             }
 
             // ── Save button ──

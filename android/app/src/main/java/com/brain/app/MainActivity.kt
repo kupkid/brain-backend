@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.brain.app.ui.AgentChatScreen
+import com.brain.app.ui.ProvidersScreen
 import com.brain.app.ui.SettingsScreen
 import com.brain.app.ui.theme.BrainTheme
 import kotlinx.coroutines.launch
@@ -40,9 +41,12 @@ class MainActivity : ComponentActivity() {
                     factory = AgentViewModelFactory(application, repository, settings)
                 )
                 var showSettings by remember { mutableStateOf(!settings.isConfigured) }
+                var showProviders by remember { mutableStateOf(false) }
 
-                if (showSettings) {
-                    SettingsScreen(settings = settings, onBack = { showSettings = false })
+                if (showProviders) {
+                    ProvidersScreen(settings = settings, onBack = { showProviders = false })
+                } else if (showSettings) {
+                    SettingsScreen(settings = settings, onBack = { showSettings = false }, onProviders = { showProviders = true })
                 } else {
                     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
                     val scope = rememberCoroutineScope()
