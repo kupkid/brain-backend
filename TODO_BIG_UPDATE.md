@@ -22,15 +22,15 @@
 - [x] **Android**: `DoneEvent` with stats fields
 - [x] **Форматирование**: 12300→"12,3K"
 
-## Phase 3: Provider System (Multi-Provider)
+## Phase 3: Provider System (Multi-Provider) ✅
 
 - [x] **Server: providers table** — `migrations/004_providers.sql` with `providers` + `provider_models`
 - [x] **Server: Provider CRUD** — POST/GET/PUT/DELETE `/v1/providers` + `/v1/providers/:id/models`
 - [x] **Server: ProvidersRepository** — `src/settings/providers.rs` with encrypted API keys
-- [ ] **Server: Proxy models endpoint** — `POST /v1/providers/:id/proxy` → fetch models from provider
-- [ ] **Android: ProvidersScreen** — card-based list of providers with toggle
-- [ ] **Android: AddProviderDialog** — presets (OpenAI, Google, Claude, Custom)
-- [ ] **Android: ProviderDetailScreen** — per-provider model list
+- [x] **Server: Proxy models endpoint** — `POST /v1/providers/:id/fetch-models` → fetch + auto-detect capabilities
+- [x] **Android: ProvidersScreen** — card-based list of providers with expand/collapse actions
+- [x] **Android: AddProviderDialog** — presets (OpenAI, Google, Claude, Cohere, DeepSeek, Custom)
+- [ ] **Android: ProviderDetailScreen** — per-provider model list with capabilities chips
 
 ## Phase 4: Multi-Model Selection
 
