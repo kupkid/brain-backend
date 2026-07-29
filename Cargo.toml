@@ -38,6 +38,10 @@ clap = { version = "4", features = ["derive"] }
 colored = "2"
 regex = "1"
 
+[dev-dependencies]
+tokio-tungstenite = "0.24"
+tempfile = "3"
+
 [profile.release]
 opt-level = "z"
 lto = true
