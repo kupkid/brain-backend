@@ -49,10 +49,6 @@ class AgentRepository(
                 onMessage(webSocket, bytes.utf8())
             }
 
-            override fun onPong(webSocket: WebSocket, bytes: ByteString) {
-                // keepalive pong received
-            }
-
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 webSocket.close(code, reason)
             }

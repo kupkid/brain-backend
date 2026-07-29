@@ -321,8 +321,7 @@ fun ModelDropdown(
 
         ExposedDropdownMenu(
             expanded = expanded,
-            onDismissRequest = { expanded = false },
-            containerColor = Color(0xFF1A1A1A)
+            onDismissRequest = { expanded = false }
         ) {
             models.forEach { model ->
                 DropdownMenuItem(
