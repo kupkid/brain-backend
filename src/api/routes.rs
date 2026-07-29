@@ -1,10 +1,12 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, State, WebSocketUpgrade},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
+use axum::extract::ws::Message;
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
@@ -17,11 +19,13 @@ use crate::memory::{
 use crate::run::{RunRepository, ToolRepository, RunContextRepository, EventStore};
 use crate::workspace::{FsWorkspaceBackend, WorkspaceBackend};
 use crate::project::ProjectRepository;
+use crate::agent::SharedEventBus;
 
 pub struct AppState {
     pub config: AppConfig,
     pub conn: Mutex<rusqlite::Connection>,
     pub master_key: Mutex<[u8; 32]>,
+    pub event_bus: SharedEventBus,
 }
 
 pub fn create_router(state: Arc<AppState>) -> Router {
@@ -42,6 +46,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/v1/runs/:id/context/:slot", get(get_context_slot).delete(delete_context_slot))
         // Agent Todos
         .route("/v1/runs/:id/todos", get(list_run_todos))
+        .route("/v1/runs/:id/ws", get(ws_handler))
         // Memories
         .route("/v1/memories", get(list_memories).post(create_memory))
         .route("/v1/memories/search", post(search_memories))
@@ -810,5 +815,75 @@ async fn list_run_todos(
             Json(serde_json::json!({"tasks": collected})).into_response()
         }
         Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+    }
+}
+
+// === WebSocket — Real-time Agent Events ===
+
+async fn ws_handler(
+    Path(id): Path<i64>,
+    State(state): State<Arc<AppState>>,
+    ws: WebSocketUpgrade,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_ws(socket, id, state))
+}
+
+async fn handle_ws(
+    mut socket: axum::extract::ws::WebSocket,
+    run_id: i64,
+    state: Arc<AppState>,
+) {
+    use tokio::sync::broadcast::error::RecvError;
+
+    let mut rx = state.event_bus.subscribe();
+
+    // Send initial state — drop conn guard before await
+    let run_info = {
+        let conn = state.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT status, tokens_used FROM runs WHERE id = ?1"
+        ).unwrap();
+        stmt.query_row(rusqlite::params![run_id], |r| {
+            Ok(serde_json::json!({
+                "event_type": "init",
+                "status": r.get::<_, String>(0)?,
+                "tokens_used": r.get::<_, i64>(1)?,
+            }))
+        }).unwrap_or_else(|_| serde_json::json!({"event_type": "init", "status": "unknown"}))
+    };
+
+    if socket.send(Message::Text(run_info.to_string())).await.is_err() {
+        return;
+    }
+
+    // Filter events for this run_id and forward to WebSocket
+    loop {
+        tokio::select! {
+            event = rx.recv() => {
+                match event {
+                    Ok(ev) if ev.run_id == run_id => {
+                        let msg = serde_json::to_string(&ev).unwrap_or_default();
+                        if socket.send(Message::Text(msg)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Ok(_) => {} // different run, skip
+                    Err(RecvError::Lagged(n)) => {
+                        let warn_msg = serde_json::json!({
+                            "event_type": "warning",
+                            "message": format!("{n} events missed")
+                        });
+                        let _ = socket.send(Message::Text(warn_msg.to_string())).await;
+                    }
+                    Err(RecvError::Closed) => break,
+                }
+            }
+            msg = socket.next() => {
+                match msg {
+                    Some(Ok(Message::Close(_))) | None => break,
+                    _ => {} // Client messages ignored for now
+                }
+            }
+        }
     }
 }

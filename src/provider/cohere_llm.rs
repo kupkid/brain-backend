@@ -1,9 +1,10 @@
 use async_trait::async_trait;
+use futures::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use super::llm::{LlmError, LlmMessage, LlmProvider, LlmResponse, StructuredOutput};
+use super::llm::{LlmError, LlmMessage, LlmProvider, LlmResponse, StreamChunk, StructuredOutput};
 
 pub struct CohereLlm {
     client: Client,
@@ -42,6 +43,23 @@ struct ChatChoice {
 #[derive(Deserialize)]
 struct ChatUsage {
     total_tokens: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct StreamResponse {
+    choices: Vec<StreamChoice>,
+}
+
+#[derive(Deserialize)]
+struct StreamChoice {
+    delta: Option<StreamDelta>,
+    #[allow(dead_code)]
+    finish_reason: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct StreamDelta {
+    content: Option<String>,
 }
 
 impl CohereLlm {
@@ -114,6 +132,88 @@ impl LlmProvider for CohereLlm {
 
         Ok(LlmResponse {
             content,
+            tokens_used,
+            model: self.model.clone(),
+        })
+    }
+
+    async fn complete_stream(
+        &self,
+        messages: &[LlmMessage],
+        max_tokens: Option<usize>,
+        temperature: Option<f32>,
+        tx: tokio::sync::mpsc::Sender<StreamChunk>,
+    ) -> Result<LlmResponse, LlmError> {
+        let chat_messages: Vec<ChatMessage> = messages
+            .iter()
+            .map(|m| ChatMessage {
+                role: m.role.clone(),
+                content: m.content.clone(),
+            })
+            .collect();
+
+        let url = format!("{}/chat/completions", self.base_url);
+        let response = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&serde_json::json!({
+                "model": self.model,
+                "messages": chat_messages,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stream": true,
+            }))
+            .send()
+            .await
+            .map_err(|e| LlmError::Provider(format!("stream request failed: {e}")))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(LlmError::Provider(format!("HTTP {status}: {body}")));
+        }
+
+        let mut stream = response.bytes_stream();
+        let mut full_content = String::new();
+        let tokens_used = 0usize;
+
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.map_err(|e| LlmError::Provider(format!("stream read error: {e}")))?;
+            let text = String::from_utf8_lossy(&chunk);
+
+            for line in text.lines() {
+                let line = line.trim();
+                if line.is_empty() || !line.starts_with("data: ") { continue; }
+                let data = &line[6..];
+                if data == "[DONE]" { continue; }
+
+                if let Ok(sr) = serde_json::from_str::<StreamResponse>(data)
+                    && let Some(choice) = sr.choices.first()
+                    && let Some(delta) = &choice.delta
+                    && let Some(content) = &delta.content
+                {
+                    full_content.push_str(content);
+                    let _ = tx.send(StreamChunk {
+                        delta: content.clone(),
+                        finished: false,
+                        tokens_used: None,
+                    }).await;
+                }
+            }
+        }
+
+        let _ = tx.send(StreamChunk {
+            delta: String::new(),
+            finished: true,
+            tokens_used: Some(tokens_used),
+        }).await;
+
+        info!("LLM stream complete: model={}, chars={}", self.model, full_content.len());
+
+        Ok(LlmResponse {
+            content: full_content,
             tokens_used,
             model: self.model.clone(),
         })

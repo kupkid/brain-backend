@@ -1,4 +1,4 @@
-#![allow(dead_code, unused_imports)] // SCAFFOLD — temporary until LLM provider integration
+#![allow(dead_code, unused_imports)]
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -39,9 +39,16 @@ pub struct StructuredOutput {
     pub model: String,
 }
 
+/// Streaming chunk from LLM
+#[derive(Debug, Clone)]
+pub struct StreamChunk {
+    pub delta: String,
+    pub finished: bool,
+    pub tokens_used: Option<usize>,
+}
+
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
-    /// Generate a completion
     async fn complete(
         &self,
         messages: &[LlmMessage],
@@ -49,7 +56,24 @@ pub trait LlmProvider: Send + Sync {
         temperature: Option<f32>,
     ) -> Result<LlmResponse, LlmError>;
 
-    /// Generate structured JSON output with schema validation
+    /// Streaming completion — yields chunks via channel
+    async fn complete_stream(
+        &self,
+        messages: &[LlmMessage],
+        max_tokens: Option<usize>,
+        temperature: Option<f32>,
+        tx: tokio::sync::mpsc::Sender<StreamChunk>,
+    ) -> Result<LlmResponse, LlmError> {
+        // Default: fall back to non-streaming
+        let response = self.complete(messages, max_tokens, temperature).await?;
+        let _ = tx.send(StreamChunk {
+            delta: response.content.clone(),
+            finished: true,
+            tokens_used: Some(response.tokens_used),
+        }).await;
+        Ok(response)
+    }
+
     async fn structured_complete(
         &self,
         messages: &[LlmMessage],
@@ -57,9 +81,6 @@ pub trait LlmProvider: Send + Sync {
         max_tokens: Option<usize>,
     ) -> Result<StructuredOutput, LlmError>;
 
-    /// Get model name
     fn model_name(&self) -> &str;
-
-    /// Health check
     async fn health_check(&self) -> bool;
 }

@@ -6,6 +6,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use brain_backend::config::AppConfig;
 use brain_backend::api::AppState;
+use brain_backend::agent::EventBus;
 use brain_backend::db;
 use brain_backend::vault;
 
@@ -66,6 +67,7 @@ async fn main() -> Result<()> {
         config: config.clone(),
         conn: Mutex::new(conn),
         master_key: Mutex::new(master_key),
+        event_bus: Arc::new(EventBus::new(1024)),
     });
 
     let cors = CorsLayer::new()
