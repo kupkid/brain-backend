@@ -64,24 +64,27 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     ) {
-                        val events by vm.events.collectAsState()
-                        val isRunning by vm.isRunning.collectAsState()
-                        val selectedModel by settings.llmModel
-                        val chats by vm.chats.collectAsState()
-                        val currentId by vm.currentChatId.collectAsState()
-                        val currentChat = chats.find { it.id == currentId }
+                    val events by vm.events.collectAsState()
+                    val isRunning by vm.isRunning.collectAsState()
+                    val selectedModel by vm.selectedModel.collectAsState()
+                    val availableModels by vm.availableModels.collectAsState()
+                    val chats by vm.chats.collectAsState()
+                    val currentId by vm.currentChatId.collectAsState()
+                    val currentChat = chats.find { it.id == currentId }
 
-                        AgentChatScreen(
-                            events = events,
-                            isRunning = isRunning,
-                            selectedModel = selectedModel,
-                            chatTitle = currentChat?.title ?: "New chat",
-                            onSendTask = { task -> vm.sendTask(task) },
-                            onStop = { vm.stopAgent() },
-                            onMenuClick = { scope.launch { drawerState.open() } },
-                            onNewChat = { vm.newChat() },
-                            onSettings = { showSettings = true }
-                        )
+                    AgentChatScreen(
+                        events = events,
+                        isRunning = isRunning,
+                        selectedModel = selectedModel,
+                        chatTitle = currentChat?.title ?: "New chat",
+                        availableModels = availableModels,
+                        onSendTask = { task -> vm.sendTask(task) },
+                        onStop = { vm.stopAgent() },
+                        onMenuClick = { scope.launch { drawerState.open() } },
+                        onNewChat = { vm.newChat() },
+                        onSettings = { showSettings = true },
+                        onModelSelected = { vm.selectModel(it) }
+                    )
                     }
                 }
             }

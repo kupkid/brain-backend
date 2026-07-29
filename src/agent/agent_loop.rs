@@ -16,11 +16,21 @@ use super::tool_trait::{ToolOutput, ToolImportance};
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WsAgentEvent {
     Thought { text: String, ts: i64 },
+    Text { text: String, ts: i64 },
     ToolCall { tool: String, args: serde_json::Value, call_id: String, ts: i64 },
     ToolResult { call_id: String, success: bool, summary: String, ts: i64 },
     TodoUpdate { todos: Vec<TodoItem>, ts: i64 },
     FileRead { path: String, text: String, ts: i64 },
-    Done { summary: String, total_tokens: usize, total_calls: u32, ts: i64 },
+    Done {
+        summary: String,
+        total_tokens: usize,
+        total_calls: u32,
+        tokens_input: usize,
+        tokens_output: usize,
+        elapsed_ms: u64,
+        tokens_per_sec: f64,
+        ts: i64,
+    },
     Error { message: String, ts: i64 },
 }
 
@@ -125,10 +135,14 @@ impl AgentLoop {
         info!("User message ({} chars): {}", user_message.len(), if user_message.len() > 200 { format!("{}...", &user_message[..200]) } else { user_message.to_string() });
 
         let mut all_results = Vec::new();
-        let mut total_tokens = 0;
+        let mut total_tokens = 0usize;
         let mut tool_call_count = 0u32;
+        let mut tokens_input_total = 0usize;
+        let mut tokens_output_total = 0usize;
+        let start_time = std::time::Instant::now();
 
         loop {
+            let llm_start = std::time::Instant::now();
             let result = match self.llm.complete_with_tools(&messages, Some(8192), Some(0.7)).await {
                 Ok(r) => r,
                 Err(e) => {
@@ -141,7 +155,13 @@ impl AgentLoop {
                     };
                 }
             };
+            let _llm_elapsed = llm_start.elapsed();
             total_tokens += result.tokens_used;
+            // Rough split: ~70% input, ~30% output (Cohere doesn't always provide breakdown)
+            let est_input = (result.tokens_used as f64 * 0.7) as usize;
+            let est_output = result.tokens_used - est_input;
+            tokens_input_total += est_input;
+            tokens_output_total += est_output;
 
             if !result.tool_calls.is_empty() {
                 // Emit thought if LLM produced text content
@@ -259,10 +279,20 @@ impl AgentLoop {
             } else {
                 // Final response — no more tool calls
                 self.store_memory(user_message, &result.content).await;
+
+                // Emit TextEvent for streaming display
+                self.emit(WsAgentEvent::Text { text: result.content.clone(), ts: Self::ts() });
+
+                let elapsed_ms = start_time.elapsed().as_millis() as u64;
+                let tps = if elapsed_ms > 0 { (total_tokens as f64 * 1000.0) / elapsed_ms as f64 } else { 0.0 };
                 self.emit(WsAgentEvent::Done {
                     summary: result.content.clone(),
                     total_tokens,
                     total_calls: tool_call_count,
+                    tokens_input: tokens_input_total,
+                    tokens_output: tokens_output_total,
+                    elapsed_ms,
+                    tokens_per_sec: tps,
                     ts: Self::ts(),
                 });
                 return AgentResponse {

@@ -62,11 +62,19 @@ class AgentRepository(private val settings: BrainSettings) {
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                val msg = when {
+                    t.message?.contains("Canceled") == true -> "Connection cancelled"
+                    t.message?.contains("timeout") == true -> "Connection timed out"
+                    t.message?.contains("refused") == true -> "Server refused connection"
+                    t.message?.contains("reset") == true -> "Connection reset"
+                    response != null && response.code == 401 -> "Invalid API key"
+                    response != null && response.code == 404 -> "Agent endpoint not found"
+                    response != null -> "HTTP ${response.code}: ${response.message}"
+                    t.message != null -> "Connection error: ${t.message}"
+                    else -> "Connection failed — check server address and port"
+                }
                 try {
-                    trySend(ErrorEvent(
-                        message = "Connection failed: ${t.message ?: "unknown"}",
-                        ts = System.currentTimeMillis() / 1000
-                    ))
+                    trySend(ErrorEvent(message = msg, ts = System.currentTimeMillis() / 1000))
                 } catch (_: Exception) {}
                 try { close() } catch (_: Exception) {}
             }

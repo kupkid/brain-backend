@@ -17,6 +17,13 @@ data class ThoughtEvent(
 ) : AgentEvent()
 
 @Serializable
+data class TextEvent(
+    override val type: String = "text",
+    override val ts: Long = 0,
+    val text: String = ""
+) : AgentEvent()
+
+@Serializable
 data class ToolCallEvent(
     override val type: String = "tool_call",
     override val ts: Long = 0,
@@ -62,7 +69,11 @@ data class DoneEvent(
     override val ts: Long = 0,
     val summary: String = "",
     val total_tokens: Int = 0,
-    val total_calls: Int = 0
+    val total_calls: Int = 0,
+    val tokens_input: Int = 0,
+    val tokens_output: Int = 0,
+    val elapsed_ms: Long = 0,
+    val tokens_per_sec: Double = 0.0
 ) : AgentEvent()
 
 @Serializable
@@ -80,6 +91,7 @@ data class TaskRequest(
 
 fun AgentEvent.toSerialized(): SerializedEvent = when (this) {
     is ThoughtEvent -> SerializedEvent(type = "thought", ts = ts, text = text)
+    is TextEvent -> SerializedEvent(type = "text", ts = ts, text = text)
     is ToolCallEvent -> SerializedEvent(type = "tool_call", ts = ts, tool = tool, call_id = call_id)
     is ToolResultEvent -> SerializedEvent(type = "tool_result", ts = ts, call_id = call_id, success = success, summary = summary)
     is TodoUpdateEvent -> SerializedEvent(type = "todo_update", ts = ts)
@@ -93,6 +105,7 @@ fun parseAgentEvent(json: String): AgentEvent {
         val obj = Json.parseToJsonElement(json).jsonObject
         when (obj["type"]?.jsonPrimitive?.content) {
             "thought" -> Json.decodeFromJsonElement<ThoughtEvent>(obj)
+            "text" -> Json.decodeFromJsonElement<TextEvent>(obj)
             "tool_call" -> Json.decodeFromJsonElement<ToolCallEvent>(obj)
             "tool_result" -> Json.decodeFromJsonElement<ToolResultEvent>(obj)
             "todo_update" -> Json.decodeFromJsonElement<TodoUpdateEvent>(obj)
