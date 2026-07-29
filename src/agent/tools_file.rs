@@ -16,10 +16,14 @@ impl FileOps {
         if std::path::Path::new(path).is_absolute() {
             return Err("absolute path rejected".to_string());
         }
-        let full = self.workspace_dir.join(path);
-        let canonical = full.canonicalize().unwrap_or_else(|_| full.clone());
-        let root = self.workspace_dir.canonicalize().unwrap_or_else(|_| self.workspace_dir.clone());
-        if !canonical.starts_with(&root) {
+        // Resolve workspace_dir to absolute first
+        let ws_root = self.workspace_dir.canonicalize().unwrap_or_else(|_| self.workspace_dir.clone());
+        let full = ws_root.join(path);
+        // For write: file may not exist yet, so just check parent
+        let parent = full.parent().unwrap_or(&full);
+        let _ = parent.canonicalize().map_err(|e| format!("parent dir error: {e}"))?;
+        let canonical = full.canonicalize().unwrap_or(full);
+        if !canonical.starts_with(&ws_root) {
             return Err("path escapes workspace".to_string());
         }
         Ok(canonical)

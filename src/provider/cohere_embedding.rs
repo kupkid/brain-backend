@@ -22,31 +22,8 @@ struct EmbedRequest {
 }
 
 #[derive(Deserialize)]
-#[serde(untagged)]
-enum EmbedResponse {
-    Typed(TypedData),
-    Direct(DirectData),
-}
-
-#[derive(Deserialize)]
-struct TypedData {
-    embeddings: TypedEmbeddings,
-}
-
-#[derive(Deserialize)]
-struct TypedEmbeddings {
-    #[serde(rename = "float")]
-    float_vec: Option<Vec<Vec<f32>>>,
-}
-
-#[derive(Deserialize)]
-struct DirectData {
-    embeddings: DirectEmbeddings,
-}
-
-#[derive(Deserialize)]
-struct DirectEmbeddings {
-    float: Vec<Vec<f32>>,
+struct EmbedResponse {
+    embeddings: Vec<Vec<f32>>,
 }
 
 impl CohereEmbedding {
@@ -112,14 +89,7 @@ impl EmbeddingProvider for CohereEmbedding {
             .await
             .map_err(|e| EmbeddingError::Provider(format!("parse error: {e}")))?;
 
-        let embeddings = match embed_response {
-            EmbedResponse::Typed(t) => {
-                t.embeddings
-                    .float_vec
-                    .ok_or_else(|| EmbeddingError::Provider("no float embeddings".to_string()))?
-            }
-            EmbedResponse::Direct(d) => d.embeddings.float,
-        };
+        let embeddings = embed_response.embeddings;
 
         for emb in &embeddings {
             if emb.len() != self.dimensions {
@@ -145,7 +115,10 @@ impl EmbeddingProvider for CohereEmbedding {
     async fn health_check(&self) -> bool {
         match self.embed("test").await {
             Ok(v) => v.len() == self.dimensions,
-            Err(_) => false,
+            Err(e) => {
+                tracing::warn!("embedding health check failed: {e}");
+                false
+            }
         }
     }
 }

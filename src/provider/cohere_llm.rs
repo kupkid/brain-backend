@@ -11,6 +11,7 @@ pub struct CohereLlm {
     api_key: String,
     model: String,
     base_url: String,
+    tools_json: Option<serde_json::Value>,
 }
 
 #[derive(Serialize)]
@@ -21,12 +22,34 @@ struct ChatRequest {
     max_tokens: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct ChatMessage {
     role: String,
-    content: String,
+    content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct RawToolCall {
+    id: String,
+    #[serde(rename = "type")]
+    call_type: String,
+    function: RawFunction,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct RawFunction {
+    name: String,
+    arguments: String,
 }
 
 #[derive(Deserialize)]
@@ -37,7 +60,13 @@ struct ChatResponse {
 
 #[derive(Deserialize)]
 struct ChatChoice {
-    message: ChatMessage,
+    message: ResponseMessage,
+}
+
+#[derive(Deserialize)]
+struct ResponseMessage {
+    content: Option<String>,
+    tool_calls: Option<Vec<RawToolCall>>,
 }
 
 #[derive(Deserialize)]
@@ -69,11 +98,24 @@ impl CohereLlm {
             api_key,
             model: model.unwrap_or_else(|| "command-a-plus-05-2026".to_string()),
             base_url: base_url.unwrap_or_else(|| "https://api.cohere.ai/compatibility/v1".to_string()),
+            tools_json: None,
         }
+    }
+
+    pub fn with_tools(mut self, tools: serde_json::Value) -> Self {
+        self.tools_json = Some(tools);
+        self
     }
 
     async fn send_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         let url = format!("{}/chat/completions", self.base_url);
+        // Debug: log the request body
+        let body = serde_json::to_string_pretty(&request).unwrap_or_default();
+        // Log just the messages array structure
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body)
+            && let Some(msgs) = v.get("messages") {
+            info!("request messages: {}", serde_json::to_string(msgs).unwrap_or_default());
+        }
         let response = self
             .client
             .post(&url)
@@ -97,19 +139,34 @@ impl CohereLlm {
     }
 }
 
-#[async_trait]
-impl LlmProvider for CohereLlm {
-    async fn complete(
+#[derive(Debug, Clone)]
+pub struct LlmToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments: serde_json::Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct LlmResult {
+    pub content: String,
+    pub tool_calls: Vec<LlmToolCall>,
+    pub tokens_used: usize,
+}
+
+impl CohereLlm {
+    pub async fn complete_with_tools(
         &self,
         messages: &[LlmMessage],
         max_tokens: Option<usize>,
         temperature: Option<f32>,
-    ) -> Result<LlmResponse, LlmError> {
+    ) -> Result<LlmResult, LlmError> {
         let chat_messages: Vec<ChatMessage> = messages
             .iter()
             .map(|m| ChatMessage {
                 role: m.role.clone(),
-                content: m.content.clone(),
+                content: Some(m.content.clone()),
+                tool_calls: m.tool_calls.clone(),
+                tool_call_id: m.tool_call_id.clone(),
             })
             .collect();
 
@@ -118,21 +175,46 @@ impl LlmProvider for CohereLlm {
             messages: chat_messages,
             max_tokens,
             temperature,
+            tools: self.tools_json.clone(),
+            stream: None,
         };
 
         let response = self.send_request(request).await?;
-        let content = response
-            .choices
-            .first()
-            .map(|c| c.message.content.clone())
-            .unwrap_or_default();
-        let tokens_used = response.usage.and_then(|u| u.total_tokens).unwrap_or(0);
+        let usage = response.usage.and_then(|u| u.total_tokens).unwrap_or(0);
 
-        info!("LLM complete: model={}, tokens={}", self.model, tokens_used);
+        let choice = response.choices.first().ok_or_else(|| LlmError::Provider("no choices".to_string()))?;
+        let content = choice.message.content.clone().unwrap_or_default();
 
+        let tool_calls: Vec<LlmToolCall> = choice.message.tool_calls.clone().unwrap_or_default()
+            .into_iter()
+            .filter_map(|tc| {
+                let args: serde_json::Value = serde_json::from_str(&tc.function.arguments).ok()?;
+                Some(LlmToolCall {
+                    id: tc.id,
+                    name: tc.function.name,
+                    arguments: args,
+                })
+            })
+            .collect();
+
+        info!("LLM complete: model={}, tokens={}, tool_calls={}", self.model, usage, tool_calls.len());
+
+        Ok(LlmResult { content, tool_calls, tokens_used: usage })
+    }
+}
+
+#[async_trait]
+impl LlmProvider for CohereLlm {
+    async fn complete(
+        &self,
+        messages: &[LlmMessage],
+        max_tokens: Option<usize>,
+        temperature: Option<f32>,
+    ) -> Result<LlmResponse, LlmError> {
+        let result = self.complete_with_tools(messages, max_tokens, temperature).await?;
         Ok(LlmResponse {
-            content,
-            tokens_used,
+            content: result.content,
+            tokens_used: result.tokens_used,
             model: self.model.clone(),
         })
     }
@@ -148,7 +230,9 @@ impl LlmProvider for CohereLlm {
             .iter()
             .map(|m| ChatMessage {
                 role: m.role.clone(),
-                content: m.content.clone(),
+                content: Some(m.content.clone()),
+                tool_calls: m.tool_calls.clone(),
+                tool_call_id: m.tool_call_id.clone(),
             })
             .collect();
 
@@ -177,7 +261,6 @@ impl LlmProvider for CohereLlm {
 
         let mut stream = response.bytes_stream();
         let mut full_content = String::new();
-        let tokens_used = 0usize;
 
         while let Some(chunk_result) = stream.next().await {
             let chunk = chunk_result.map_err(|e| LlmError::Provider(format!("stream read error: {e}")))?;
@@ -207,14 +290,12 @@ impl LlmProvider for CohereLlm {
         let _ = tx.send(StreamChunk {
             delta: String::new(),
             finished: true,
-            tokens_used: Some(tokens_used),
+            tokens_used: Some(0),
         }).await;
-
-        info!("LLM stream complete: model={}, chars={}", self.model, full_content.len());
 
         Ok(LlmResponse {
             content: full_content,
-            tokens_used,
+            tokens_used: 0,
             model: self.model.clone(),
         })
     }
@@ -226,10 +307,8 @@ impl LlmProvider for CohereLlm {
         max_tokens: Option<usize>,
     ) -> Result<StructuredOutput, LlmError> {
         let response = self.complete(messages, max_tokens, None).await?;
-
         let json: serde_json::Value = serde_json::from_str(&response.content)
             .map_err(|e| LlmError::InvalidJson(format!("{e}: {}", response.content)))?;
-
         Ok(StructuredOutput {
             json,
             tokens_used: response.tokens_used,
@@ -246,10 +325,14 @@ impl LlmProvider for CohereLlm {
             model: self.model.clone(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: "hi".to_string(),
+                content: Some("hi".to_string()),
+                tool_calls: None,
+                tool_call_id: None,
             }],
             max_tokens: Some(5),
             temperature: None,
+            tools: None,
+            stream: None,
         };
 
         match self.send_request(request).await {

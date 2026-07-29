@@ -5,8 +5,8 @@ use brain_backend::agent::{AgentLoop, AgentConfig};
 use brain_backend::agent::tools;
 use brain_backend::provider::cohere_llm::CohereLlm;
 use brain_backend::provider::cohere_embedding::CohereEmbedding;
-use brain_backend::provider::llm::LlmProvider;
 use brain_backend::provider::embedding::EmbeddingProvider;
+use brain_backend::provider::llm::LlmProvider;
 use brain_backend::agent::agent_loop::AgentMessage;
 use brain_backend::agent::tool_trait::ToolImportance;
 use brain_backend::db;
@@ -37,24 +37,58 @@ async fn main() {
     let conn = Arc::new(Mutex::new(db::init_db(&db_path).expect("failed to init db")));
     db::ensure_vec_table(&conn.lock().unwrap(), 1024).ok();
 
-    let llm = Arc::new(CohereLlm::new(api_key.clone(), None, None));
+    // Ensure default embedding collection
+    {
+        let c = conn.lock().unwrap();
+        let count: i64 = c.query_row("SELECT COUNT(*) FROM embedding_collections", [], |r| r.get(0)).unwrap_or(0);
+        if count == 0 {
+            use brain_backend::db::ids;
+            let uuid = ids::new_uuid_blob();
+            c.execute(
+                "INSERT INTO embedding_collections (uuid, model_name, dimensions, distance_metric, active)
+                 VALUES (?1, 'embed-multilingual-v3.0', 1024, 'cosine', 1)",
+                [uuid],
+            ).ok();
+        }
+    }
+
+    // Create a run for this session
+    let run_id = {
+        let c = conn.lock().unwrap();
+        let uuid = brain_backend::db::ids::new_uuid_blob();
+        c.execute(
+            "INSERT INTO runs (uuid, agent_name, goal, context_json, status)
+             VALUES (?1, 'cli-agent', 'interactive session', '{}', 'running')",
+            [uuid],
+        ).expect("failed to create run");
+        c.last_insert_rowid()
+    };
+
+    let llm_base = CohereLlm::new(api_key.clone(), None, None);
+    let config = AgentConfig::from_env();
+    let workspace = config.workspace_dir.clone();
+
+    let toolbox = tools::build_default_tools(
+        &conn, run_id,
+        workspace.clone(), config.tool_timeout_seconds,
+    );
+
+    // Create LLM with tools for native function calling
+    let llm = Arc::new(llm_base.with_tools(toolbox.schema()));
     let embedding = Arc::new(CohereEmbedding::new(api_key, None));
 
     print!("Health check... ");
-    if llm.health_check().await && embedding.health_check().await {
+    let llm_ok = llm.health_check().await;
+    let emb_ok = embedding.health_check().await;
+    if llm_ok && emb_ok {
         println!("{}", "OK".green());
     } else {
-        println!("{}", "FAILED".red());
+        if !llm_ok { println!("LLM {}", "FAILED".red()); }
+        if !emb_ok { println!("Embedding {}", "FAILED".red()); }
         std::process::exit(1);
     }
 
-    let config = AgentConfig::from_env();
-    let run_id = 1i64;
-    let toolbox = tools::build_default_tools(
-        &conn, run_id,
-        config.workspace_dir.clone(), config.tool_timeout_seconds,
-    );
-
+    println!("Run: {run_id}");
     println!("Tools: {}\n", toolbox.names().join(", ").dimmed());
 
     let agent = AgentLoop::new(
@@ -90,7 +124,9 @@ async fn main() {
             println!("\n{}", "Tools:".dimmed());
             for tr in &response.tool_results {
                 let status = if tr.output.result.is_null() { "err".red() } else { "ok".green() };
-                println!("  {} {} — {}", status, tr.name, tr.output.result.to_string().dimmed());
+                let summary = tr.output.result.to_string();
+                let short = if summary.len() > 120 { format!("{}...", &summary[..120]) } else { summary };
+                println!("  {} {} — {}", status, tr.name, short.dimmed());
             }
         }
         println!("{}\n", format!("({} tokens)", response.tokens_used).dimmed());

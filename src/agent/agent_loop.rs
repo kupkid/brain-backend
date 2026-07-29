@@ -2,8 +2,9 @@ use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
 use tracing::{info, warn};
 
-use crate::provider::llm::{LlmProvider, LlmMessage};
+use crate::provider::llm::LlmMessage;
 use crate::provider::embedding::EmbeddingProvider;
+use crate::provider::cohere_llm::CohereLlm;
 use crate::memory::MemoryRepository;
 use crate::memory::repository::NewMemory;
 use crate::memory::heuristic;
@@ -12,7 +13,7 @@ use super::tools::ToolBox;
 use super::tool_trait::{ToolOutput, ToolImportance};
 
 pub struct AgentLoop {
-    llm: Arc<dyn LlmProvider>,
+    llm: Arc<CohereLlm>,
     #[allow(dead_code)]
     embedding: Arc<dyn EmbeddingProvider>,
     conn: Arc<Mutex<Connection>>,
@@ -43,7 +44,7 @@ pub struct ToolCallResult {
 
 impl AgentLoop {
     pub fn new(
-        llm: Arc<dyn LlmProvider>,
+        llm: Arc<CohereLlm>,
         embedding: Arc<dyn EmbeddingProvider>,
         conn: Arc<Mutex<Connection>>,
         tools: ToolBox,
@@ -63,6 +64,8 @@ impl AgentLoop {
         let mut messages = vec![LlmMessage {
             role: "system".to_string(),
             content: self.build_system_prompt(),
+            tool_call_id: None,
+            tool_calls: None,
         }];
 
         let pruned = self.prune_history(history);
@@ -70,19 +73,23 @@ impl AgentLoop {
             messages.push(LlmMessage {
                 role: msg.role.clone(),
                 content: msg.content.clone(),
+                tool_call_id: None,
+                tool_calls: None,
             });
         }
 
         messages.push(LlmMessage {
             role: "user".to_string(),
             content: user_message.to_string(),
+            tool_call_id: None,
+            tool_calls: None,
         });
 
         let mut all_results = Vec::new();
         let mut total_tokens = 0;
 
         loop {
-            let response = match self.llm.complete(&messages, Some(4096), Some(0.7)).await {
+            let result = match self.llm.complete_with_tools(&messages, Some(4096), Some(0.7)).await {
                 Ok(r) => r,
                 Err(e) => {
                     warn!("LLM error: {e}");
@@ -93,17 +100,30 @@ impl AgentLoop {
                     };
                 }
             };
-            total_tokens += response.tokens_used;
+            total_tokens += result.tokens_used;
 
-            if let Some(tool_calls) = self.parse_tool_calls(&response.content) {
+            if !result.tool_calls.is_empty() {
+                // Add assistant message with tool calls (Cohere needs tool_calls in message)
+                let tool_calls_json: Vec<serde_json::Value> = result.tool_calls.iter().map(|tc| {
+                    serde_json::json!({
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": tc.arguments.to_string(),
+                        }
+                    })
+                }).collect();
                 messages.push(LlmMessage {
                     role: "assistant".to_string(),
-                    content: response.content.clone(),
+                    content: if result.content.is_empty() { String::new() } else { result.content.clone() },
+                    tool_call_id: None,
+                    tool_calls: Some(tool_calls_json),
                 });
 
-                for (name, args) in &tool_calls {
-                    info!("tool call: {}({})", name, args);
-                    let output = match self.tools.call(name, args) {
+                for tc in &result.tool_calls {
+                    info!("tool call: {}({})", tc.name, tc.arguments);
+                    let output = match self.tools.call(&tc.name, &tc.arguments) {
                         Ok(o) => o,
                         Err(e) => ToolOutput::error(&e),
                     };
@@ -116,20 +136,23 @@ impl AgentLoop {
                         }
                     };
 
+                    // Tool result messages must include tool_call_id for Cohere API
                     messages.push(LlmMessage {
                         role: "tool".to_string(),
                         content: content_for_llm,
+                        tool_call_id: Some(tc.id.clone()),
+                        tool_calls: None,
                     });
 
                     all_results.push(ToolCallResult {
-                        name: name.clone(),
+                        name: tc.name.clone(),
                         output,
                     });
                 }
             } else {
-                self.store_memory(user_message, &response.content).await;
+                self.store_memory(user_message, &result.content).await;
                 return AgentResponse {
-                    content: response.content,
+                    content: result.content,
                     tool_results: all_results,
                     tokens_used: total_tokens,
                 };
@@ -138,31 +161,7 @@ impl AgentLoop {
     }
 
     fn build_system_prompt(&self) -> String {
-        let tool_names = self.tools.names().join(", ");
-        format!(
-            "You are a helpful AI agent with tools. Use them when needed.\n\
-             Tools: {tool_names}.\n\
-             To call a tool, write exactly:\n\
-             ```tool\n{{\"name\":\"tool_name\",\"arguments\":{{...}}}}\n```\n\
-             When done, respond normally without tool blocks."
-        )
-    }
-
-    fn parse_tool_calls(&self, content: &str) -> Option<Vec<(String, serde_json::Value)>> {
-        let mut calls = Vec::new();
-        let mut remaining = content;
-        while let Some(start) = remaining.find("```tool") {
-            let after = &remaining[start + 7..];
-            if let Some(end) = after.find("```") {
-                let json_str = after[..end].trim();
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_str)
-                    && let (Some(name), Some(args)) = (value.get("name"), value.get("arguments")) {
-                    calls.push((name.as_str().unwrap_or("").to_string(), args.clone()));
-                }
-                remaining = &after[end + 3..];
-            } else { break; }
-        }
-        if calls.is_empty() { None } else { Some(calls) }
+        "You are a helpful AI agent with tools for file operations, shell commands, web browsing, and task management. Use tools when needed to accomplish tasks. Think step by step. Explain what you're doing.".to_string()
     }
 
     fn prune_history(&self, history: &[AgentMessage]) -> Vec<AgentMessage> {
