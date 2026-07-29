@@ -78,16 +78,33 @@ data class TaskRequest(
     val mode: String = "auto"
 )
 
+fun AgentEvent.toSerialized(): SerializedEvent = when (this) {
+    is ThoughtEvent -> SerializedEvent(type = "thought", ts = ts, text = text)
+    is ToolCallEvent -> SerializedEvent(type = "tool_call", ts = ts, tool = tool, call_id = call_id)
+    is ToolResultEvent -> SerializedEvent(type = "tool_result", ts = ts, call_id = call_id, success = success, summary = summary)
+    is TodoUpdateEvent -> SerializedEvent(type = "todo_update", ts = ts)
+    is FileReadEvent -> SerializedEvent(type = "file_read", ts = ts, path = path, text = text)
+    is DoneEvent -> SerializedEvent(type = "done", ts = ts, summary = summary, total_tokens = total_tokens, total_calls = total_calls)
+    is ErrorEvent -> SerializedEvent(type = "error", ts = ts, message = message)
+}
+
 fun parseAgentEvent(json: String): AgentEvent {
-    val obj = Json.parseToJsonElement(json).jsonObject
-    return when (obj["type"]?.jsonPrimitive?.content) {
-        "thought" -> Json.decodeFromJsonElement<ThoughtEvent>(obj)
-        "tool_call" -> Json.decodeFromJsonElement<ToolCallEvent>(obj)
-        "tool_result" -> Json.decodeFromJsonElement<ToolResultEvent>(obj)
-        "todo_update" -> Json.decodeFromJsonElement<TodoUpdateEvent>(obj)
-        "file_read" -> Json.decodeFromJsonElement<FileReadEvent>(obj)
-        "done" -> Json.decodeFromJsonElement<DoneEvent>(obj)
-        "error" -> Json.decodeFromJsonElement<ErrorEvent>(obj)
-        else -> ThoughtEvent(text = "[unknown event: ${obj["type"]}]", ts = System.currentTimeMillis() / 1000)
+    return try {
+        val obj = Json.parseToJsonElement(json).jsonObject
+        when (obj["type"]?.jsonPrimitive?.content) {
+            "thought" -> Json.decodeFromJsonElement<ThoughtEvent>(obj)
+            "tool_call" -> Json.decodeFromJsonElement<ToolCallEvent>(obj)
+            "tool_result" -> Json.decodeFromJsonElement<ToolResultEvent>(obj)
+            "todo_update" -> Json.decodeFromJsonElement<TodoUpdateEvent>(obj)
+            "file_read" -> Json.decodeFromJsonElement<FileReadEvent>(obj)
+            "done" -> Json.decodeFromJsonElement<DoneEvent>(obj)
+            "error" -> Json.decodeFromJsonElement<ErrorEvent>(obj)
+            else -> ThoughtEvent(text = "[unknown: ${obj["type"]}]", ts = System.currentTimeMillis() / 1000)
+        }
+    } catch (e: Exception) {
+        ThoughtEvent(
+            text = if (json.length > 200) json.take(200) + "..." else json,
+            ts = System.currentTimeMillis() / 1000
+        )
     }
 }

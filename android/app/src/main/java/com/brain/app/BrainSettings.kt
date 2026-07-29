@@ -80,7 +80,7 @@ class BrainSettings(context: Context) {
 
     suspend fun fetchModels(): Result<List<ModelInfo>> = withContext(Dispatchers.IO) {
         try {
-            val body = JSONObject().put("path", "/v1/models")
+            val body = JSONObject().put("path", "/models")
             val request = Request.Builder()
                 .url("${serverUrl()}/v1/settings/provider/proxy")
                 .addHeader("Authorization", "Bearer ${serverApiKey.value}")

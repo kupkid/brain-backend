@@ -25,30 +25,32 @@ class AgentRepository(private val settings: BrainSettings) {
             return@callbackFlow
         }
 
-        val builder = Request.Builder()
+        val request = Request.Builder()
             .url("ws://$host/ws/agent")
-
-        if (apiKey.isNotBlank()) {
-            builder.addHeader("Authorization", "Bearer $apiKey")
-        }
-
-        val request = builder.build()
+            .apply {
+                if (apiKey.isNotBlank()) addHeader("Authorization", "Bearer $apiKey")
+            }
+            .build()
 
         val listener = object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                val msg = Json.encodeToString(
-                    TaskRequest.serializer(),
-                    TaskRequest(task = task)
-                )
-                webSocket.send(msg)
+                try {
+                    val msg = Json.encodeToString(TaskRequest.serializer(), TaskRequest(task = task))
+                    webSocket.send(msg)
+                } catch (e: Exception) {
+                    trySend(ErrorEvent(message = "Failed to send task: ${e.message}", ts = System.currentTimeMillis() / 1000))
+                    close()
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                val event = parseAgentEvent(text)
-                trySend(event)
-                if (event is DoneEvent || event is ErrorEvent) {
-                    webSocket.close(1000, "done")
-                }
+                try {
+                    val event = parseAgentEvent(text)
+                    trySend(event)
+                    if (event is DoneEvent || event is ErrorEvent) {
+                        webSocket.close(1000, "done")
+                    }
+                } catch (_: Exception) {}
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
@@ -56,19 +58,23 @@ class AgentRepository(private val settings: BrainSettings) {
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                webSocket.close(code, reason)
+                try { webSocket.close(code, reason) } catch (_: Exception) {}
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                trySend(ErrorEvent(message = t.message ?: "Connection failed", ts = System.currentTimeMillis() / 1000))
-                close()
+                try {
+                    trySend(ErrorEvent(
+                        message = "Connection failed: ${t.message ?: "unknown"}",
+                        ts = System.currentTimeMillis() / 1000
+                    ))
+                } catch (_: Exception) {}
+                try { close() } catch (_: Exception) {}
             }
         }
 
         val ws = client.newWebSocket(request, listener)
-
         awaitClose {
-            ws.close(1000, "client closed")
+            try { ws.close(1000, "client closed") } catch (_: Exception) {}
         }
     }
 }
