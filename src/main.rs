@@ -79,16 +79,12 @@ async fn main() -> Result<()> {
         move |conn: &rusqlite::Connection, master_key: &[u8; 32], tools: serde_json::Value| {
             let providers_repo = ProvidersRepository::new(conn);
             // Try default provider first, then first enabled provider
-            let provider = providers_repo
-                .get_default()
-                .ok()
-                .flatten()
-                .or_else(|| {
-                    providers_repo
-                        .list()
-                        .ok()
-                        .and_then(|ps| ps.into_iter().find(|p| p.enabled))
-                });
+            let provider = providers_repo.get_default().ok().flatten().or_else(|| {
+                providers_repo
+                    .list()
+                    .ok()
+                    .and_then(|ps| ps.into_iter().find(|p| p.enabled))
+            });
 
             match provider {
                 Some(p) => {
@@ -105,9 +101,12 @@ async fn main() -> Result<()> {
                     );
                     match p.provider_type.as_str() {
                         "openai" | "openai_compat" => {
-                            let provider = brain_backend::provider::openai_compat::OpenAiCompatLlm::new(
-                                api_key, "gpt-4o".to_string(), p.base_url,
-                            );
+                            let provider =
+                                brain_backend::provider::openai_compat::OpenAiCompatLlm::new(
+                                    api_key,
+                                    "gpt-4o".to_string(),
+                                    p.base_url,
+                                );
                             Arc::new(provider.with_tools(tools)) as Arc<dyn LlmProvider>
                         }
                         "cohere" => {
@@ -118,9 +117,12 @@ async fn main() -> Result<()> {
                         }
                         _ => {
                             // Default to OpenAI-compatible
-                            let provider = brain_backend::provider::openai_compat::OpenAiCompatLlm::new(
-                                api_key, "gpt-4o".to_string(), p.base_url,
-                            );
+                            let provider =
+                                brain_backend::provider::openai_compat::OpenAiCompatLlm::new(
+                                    api_key,
+                                    "gpt-4o".to_string(),
+                                    p.base_url,
+                                );
                             Arc::new(provider.with_tools(tools)) as Arc<dyn LlmProvider>
                         }
                     }
@@ -131,9 +133,8 @@ async fn main() -> Result<()> {
                     let api_key = std::env::var("COHERE_API_KEY")
                         .or_else(|_| std::env::var("LLM_API_KEY"))
                         .unwrap_or_default();
-                    let provider = brain_backend::provider::cohere_llm::CohereLlm::new(
-                        api_key, None, None,
-                    );
+                    let provider =
+                        brain_backend::provider::cohere_llm::CohereLlm::new(api_key, None, None);
                     Arc::new(provider.with_tools(tools)) as Arc<dyn LlmProvider>
                 }
             }

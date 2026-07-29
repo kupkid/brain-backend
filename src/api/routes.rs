@@ -1444,14 +1444,14 @@ async fn fetch_provider_models(
                     StatusCode::NOT_FOUND,
                     Json(serde_json::json!({"error": "provider not found"})),
                 )
-                    .into_response()
+                    .into_response();
             }
             Err(_e) => {
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(serde_json::json!({"error": "internal error"})),
                 )
-                    .into_response()
+                    .into_response();
             }
         };
         let key = repo
@@ -1476,7 +1476,7 @@ async fn fetch_provider_models(
                 StatusCode::BAD_GATEWAY,
                 Json(serde_json::json!({"error": format!("failed to reach provider: {e}")})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -1487,7 +1487,7 @@ async fn fetch_provider_models(
                 StatusCode::BAD_GATEWAY,
                 Json(serde_json::json!({"error": format!("failed to read response: {e}")})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -1498,21 +1498,22 @@ async fn fetch_provider_models(
                 StatusCode::BAD_GATEWAY,
                 Json(serde_json::json!({"error": "invalid JSON from provider", "raw": body})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
     // Parse models from standard OpenAI format: {"data": [{"id": "model-name", ...}]}
-    let models = match parsed.get("data").and_then(|d| d.as_array()) {
-        Some(arr) => arr,
-        None => {
-            return (
+    let models =
+        match parsed.get("data").and_then(|d| d.as_array()) {
+            Some(arr) => arr,
+            None => return (
                 StatusCode::BAD_GATEWAY,
-                Json(serde_json::json!({"error": "unexpected response format", "response": parsed})),
+                Json(
+                    serde_json::json!({"error": "unexpected response format", "response": parsed}),
+                ),
             )
-                .into_response()
-        }
-    };
+                .into_response(),
+        };
 
     // Upsert models into provider_models
     let mut saved = 0;
@@ -1537,11 +1538,17 @@ async fn fetch_provider_models(
             let lower = model_id.to_lowercase();
             let supports_tools = !lower.contains("embed")
                 && !lower.contains("mini")
-                && (lower.contains("gpt-4") || lower.contains("claude") || lower.contains("gemini"));
-            let supports_vision = lower.contains("gpt-4o") || lower.contains("claude-3")
-                || lower.contains("gemini") || lower.contains("vision");
-            let supports_reasoning = lower.contains("o1") || lower.contains("o3")
-                || lower.contains("thinking") || lower.contains("reason");
+                && (lower.contains("gpt-4")
+                    || lower.contains("claude")
+                    || lower.contains("gemini"));
+            let supports_vision = lower.contains("gpt-4o")
+                || lower.contains("claude-3")
+                || lower.contains("gemini")
+                || lower.contains("vision");
+            let supports_reasoning = lower.contains("o1")
+                || lower.contains("o3")
+                || lower.contains("thinking")
+                || lower.contains("reason");
 
             let provider_model = crate::settings::providers::ProviderModel {
                 id: 0,

@@ -30,21 +30,20 @@
 - [x] **Server: Proxy models endpoint** — `POST /v1/providers/:id/fetch-models` → fetch + auto-detect capabilities
 - [x] **Android: ProvidersScreen** — card-based list of providers with expand/collapse actions
 - [x] **Android: AddProviderDialog** — presets (OpenAI, Google, Claude, Cohere, DeepSeek, Custom)
-- [ ] **Android: ProviderDetailScreen** — per-provider model list with capabilities chips
+- [x] **Android: ProviderDetailScreen** — per-provider model list with capabilities chips
 
 ## Phase 4: Multi-Model Selection
 
+- [x] **Android: Model Editor** — full-screen with tabs (Basic/Advanced/Tools) + capability toggles
 - [ ] **Android: Model selector в чате** — внизу чата (над input) горизонтальный список моделей. Каждая модель = chip с названием. Выбранная = highlighted
 - [ ] **Android: Full-screen model picker** — по тапу на модель открывается full-screen список моделей со всех провайдеров
-- [ ] **Android: Model capabilities** — при fetch определять: type (chat/embedding/image), input (text/image/audio/video), capabilities (tools, reasoning, vision)
-- [ ] **Android: Model editor** — как фото 4: табы (Basic/Advanced/Tools), chips для type/input/output/capabilities
 
 ## Phase 5: Model Capabilities Detection
 
-- [ ] **Server: Parse /v1/models response** — извлекать capabilities из ответа провайдера (engine_data, owned_by, etc.)
-- [ ] **Server: Fallback capabilities** — если неизвестно: default to chat + text + tools (для большинства моделей)
+- [x] **Server: Parse /v1/models response** — извлекать capabilities из ответа провайдера (engine_data, owned_by, etc.)
+- [x] **Server: Fallback capabilities** — если неизвестно: default to chat + text + tools (для большинства моделей)
 - [ ] **Server: Manual capabilities** — allow user to set capabilities via PUT /v1/providers/:id/models/:model_id
-- [ ] **Android: Display capabilities** — badge/chips: 🔧 Tools, 🧠 Reasoning, 👁 Vision, 🎵 Audio, 🎬 Video
+- [x] **Android: Display capabilities** — badge/chips: Tools, Reasoning, Vision, Audio, Video (ProviderDetailScreen + ModelEditorScreen)
 
 ## Phase 6: File/Photo Attachments
 
