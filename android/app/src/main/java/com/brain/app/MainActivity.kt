@@ -121,6 +121,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+}
 
 class AgentViewModelFactory(
     private val app: android.app.Application,
