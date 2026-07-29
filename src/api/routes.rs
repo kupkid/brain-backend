@@ -40,6 +40,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/v1/runs/:id/tools/stats", get(run_tools_stats))
         .route("/v1/runs/:id/context", get(list_run_context).put(upsert_run_context))
         .route("/v1/runs/:id/context/:slot", get(get_context_slot).delete(delete_context_slot))
+        // Agent Todos
+        .route("/v1/runs/:id/todos", get(list_run_todos))
         // Memories
         .route("/v1/memories", get(list_memories).post(create_memory))
         .route("/v1/memories/search", post(search_memories))
@@ -773,6 +775,40 @@ async fn write_workspace_file(
             }
         }
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+    }
+}
+
+// === Agent Todos ===
+
+async fn list_run_todos(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let conn = state.conn.lock().unwrap();
+    use rusqlite::params;
+    let mut stmt = match conn.prepare(
+        "SELECT task_id, title, description, status, created_at, updated_at
+         FROM agent_todos WHERE run_id = ?1 ORDER BY created_at"
+    ) {
+        Ok(s) => s,
+        Err(_e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+    };
+    let todos = stmt.query_map(params![id], |r| {
+        Ok(serde_json::json!({
+            "task_id": r.get::<_, String>(0)?,
+            "title": r.get::<_, String>(1)?,
+            "description": r.get::<_, String>(2)?,
+            "status": r.get::<_, String>(3)?,
+            "created_at": r.get::<_, String>(4)?,
+            "updated_at": r.get::<_, String>(5)?,
+        }))
+    });
+    match todos {
+        Ok(rows) => {
+            let collected: Vec<_> = rows.filter_map(|r| r.ok()).collect();
+            Json(serde_json::json!({"tasks": collected})).into_response()
+        }
         Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
     }
 }

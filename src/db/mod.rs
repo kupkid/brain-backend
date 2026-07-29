@@ -5,6 +5,7 @@ use tracing::info;
 pub mod ids;
 
 static MIGRATION_SQL: &str = include_str!("../../migrations/001_init.sql");
+static MIGRATION_TODOS: &str = include_str!("../../migrations/002_agent_todos.sql");
 
 pub fn init_db(db_path: &Path) -> anyhow::Result<Connection> {
     // Register sqlite-vec as auto-extension BEFORE opening any connection.
@@ -29,6 +30,7 @@ pub fn init_db(db_path: &Path) -> anyhow::Result<Connection> {
 
     // Apply DDL
     conn.execute_batch(MIGRATION_SQL)?;
+    conn.execute_batch(MIGRATION_TODOS)?;
     info!("database initialized at {}", db_path.display());
 
     // Verify vec0 is available

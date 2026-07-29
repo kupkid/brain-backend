@@ -33,9 +33,10 @@ subtle = "2.6"
 zeroize = { version = "1", features = ["derive"] }
 scopeguard = "1"
 base64 = "0.22"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+reqwest = { version = "0.12", features = ["json", "blocking", "rustls-tls"], default-features = false }
 clap = { version = "4", features = ["derive"] }
 colored = "2"
+regex = "1"
 
 [profile.release]
 opt-level = "z"
