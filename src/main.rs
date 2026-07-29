@@ -122,15 +122,15 @@ async fn main() -> Result<()> {
                         "openai" | "openai_compat" => {
                             let provider =
                                 brain_backend::provider::openai_compat::OpenAiCompatLlm::new(
-                                    api_key,
-                                    model_name,
-                                    p.base_url,
+                                    api_key, model_name, p.base_url,
                                 );
                             Arc::new(provider.with_tools(tools)) as Arc<dyn LlmProvider>
                         }
                         "cohere" => {
                             let provider = brain_backend::provider::cohere_llm::CohereLlm::new(
-                                api_key, Some(model_name), Some(p.base_url),
+                                api_key,
+                                Some(model_name),
+                                Some(p.base_url),
                             );
                             Arc::new(provider.with_tools(tools)) as Arc<dyn LlmProvider>
                         }
@@ -138,9 +138,7 @@ async fn main() -> Result<()> {
                             // Default to OpenAI-compatible
                             let provider =
                                 brain_backend::provider::openai_compat::OpenAiCompatLlm::new(
-                                    api_key,
-                                    model_name,
-                                    p.base_url,
+                                    api_key, model_name, p.base_url,
                                 );
                             Arc::new(provider.with_tools(tools)) as Arc<dyn LlmProvider>
                         }
@@ -149,12 +147,11 @@ async fn main() -> Result<()> {
                 None => {
                     tracing::warn!("no provider configured — agent will not work");
                     // Return a dummy provider that will fail health_check
-                    let provider =
-                        brain_backend::provider::openai_compat::OpenAiCompatLlm::new(
-                            String::new(),
-                            "no-model".to_string(),
-                            "http://localhost".to_string(),
-                        );
+                    let provider = brain_backend::provider::openai_compat::OpenAiCompatLlm::new(
+                        String::new(),
+                        "no-model".to_string(),
+                        "http://localhost".to_string(),
+                    );
                     Arc::new(provider.with_tools(tools)) as Arc<dyn LlmProvider>
                 }
             }

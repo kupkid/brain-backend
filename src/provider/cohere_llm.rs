@@ -178,8 +178,12 @@ impl CohereLlm {
         let response = self.send_request(request).await?;
         let usage = response.usage.as_ref();
         let total_tokens = usage.and_then(|u| u.total_tokens).unwrap_or(0);
-        let prompt_tokens = usage.and_then(|u| u.prompt_tokens).unwrap_or(total_tokens * 7 / 10);
-        let completion_tokens = usage.and_then(|u| u.completion_tokens).unwrap_or(total_tokens - prompt_tokens);
+        let prompt_tokens = usage
+            .and_then(|u| u.prompt_tokens)
+            .unwrap_or(total_tokens * 7 / 10);
+        let completion_tokens = usage
+            .and_then(|u| u.completion_tokens)
+            .unwrap_or(total_tokens - prompt_tokens);
 
         let choice = response
             .choices
