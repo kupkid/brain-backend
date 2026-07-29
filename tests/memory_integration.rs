@@ -4,12 +4,11 @@ use std::sync::Once;
 static INIT: Once = Once::new();
 
 fn setup_db() -> Connection {
-    INIT.call_once(|| {
-        unsafe {
-            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
-                sqlite_vec::sqlite3_vec_init as *const (),
-            )));
-        }
+    #[allow(clippy::missing_transmute_annotations)]
+    INIT.call_once(|| unsafe {
+        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+            sqlite_vec::sqlite3_vec_init as *const (),
+        )));
     });
 
     let conn = Connection::open_in_memory().unwrap();
@@ -22,11 +21,13 @@ fn setup_db() -> Connection {
     conn.execute(
         "INSERT INTO projects (uuid, name, root_path) VALUES (?1, 'test-project-1', '/tmp/test1')",
         [brain_backend::db::ids::new_uuid_blob()],
-    ).unwrap();
+    )
+    .unwrap();
     conn.execute(
         "INSERT INTO projects (uuid, name, root_path) VALUES (?1, 'test-project-2', '/tmp/test2')",
         [brain_backend::db::ids::new_uuid_blob()],
-    ).unwrap();
+    )
+    .unwrap();
 
     // Create test run (id=1)
     conn.execute(
@@ -39,7 +40,8 @@ fn setup_db() -> Connection {
         "INSERT INTO embedding_collections (uuid, model_name, dimensions, distance_metric)
          VALUES (?1, 'test-model', 1024, 'cosine')",
         [brain_backend::db::ids::new_uuid_blob()],
-    ).unwrap();
+    )
+    .unwrap();
 
     // Create vec0 table for 1024d
     brain_backend::db::ensure_vec_table(&conn, 1024).unwrap();
@@ -58,7 +60,9 @@ fn test_fts5_basic_search() {
         project_id: Some(1),
         run_id: None,
         content: "The quick brown fox jumps over the lazy dog".to_string(),
-        content_hash: brain_backend::memory::compute_content_hash("The quick brown fox jumps over the lazy dog"),
+        content_hash: brain_backend::memory::compute_content_hash(
+            "The quick brown fox jumps over the lazy dog",
+        ),
         memory_type: "fact".to_string(),
         layer: "project".to_string(),
         importance: 0.8,
@@ -71,7 +75,9 @@ fn test_fts5_basic_search() {
         project_id: Some(1),
         run_id: None,
         content: "Rust is a systems programming language focused on safety".to_string(),
-        content_hash: brain_backend::memory::compute_content_hash("Rust is a systems programming language focused on safety"),
+        content_hash: brain_backend::memory::compute_content_hash(
+            "Rust is a systems programming language focused on safety",
+        ),
         memory_type: "fact".to_string(),
         layer: "project".to_string(),
         importance: 0.9,
@@ -84,7 +90,9 @@ fn test_fts5_basic_search() {
         project_id: Some(1),
         run_id: None,
         content: "The quick brown fox appears in many pangrams".to_string(),
-        content_hash: brain_backend::memory::compute_content_hash("The quick brown fox appears in many pangrams"),
+        content_hash: brain_backend::memory::compute_content_hash(
+            "The quick brown fox appears in many pangrams",
+        ),
         memory_type: "fact".to_string(),
         layer: "project".to_string(),
         importance: 0.6,
@@ -101,7 +109,10 @@ fn test_fts5_basic_search() {
     let retriever = brain_backend::memory::MemoryRetriever::new(&conn);
     let results = retriever.fts_search("fox", Some(1), 10).unwrap();
 
-    assert!(!results.is_empty(), "FTS search for 'fox' should return results");
+    assert!(
+        !results.is_empty(),
+        "FTS search for 'fox' should return results"
+    );
     let found_ids: Vec<i64> = results.iter().map(|(id, _)| *id).collect();
     assert!(found_ids.contains(&id1), "should find mem1 about fox");
     assert!(found_ids.contains(&id3), "should find mem3 about fox");
@@ -110,7 +121,10 @@ fn test_fts5_basic_search() {
     // FTS search for "programming"
     let results2 = retriever.fts_search("programming", Some(1), 10).unwrap();
     let found_ids2: Vec<i64> = results2.iter().map(|(id, _)| *id).collect();
-    assert!(found_ids2.contains(&id2), "should find mem2 about programming");
+    assert!(
+        found_ids2.contains(&id2),
+        "should find mem2 about programming"
+    );
     assert_eq!(found_ids2.len(), 1, "only one result about programming");
 }
 
@@ -158,7 +172,9 @@ fn test_project_isolation() {
         project_id: Some(1),
         run_id: None,
         content: "Memory belonging to project one with unique content A".to_string(),
-        content_hash: brain_backend::memory::compute_content_hash("Memory belonging to project one with unique content A"),
+        content_hash: brain_backend::memory::compute_content_hash(
+            "Memory belonging to project one with unique content A",
+        ),
         memory_type: "fact".to_string(),
         layer: "project".to_string(),
         importance: 0.7,
@@ -171,7 +187,9 @@ fn test_project_isolation() {
         project_id: Some(2),
         run_id: None,
         content: "Memory belonging to project two with unique content B".to_string(),
-        content_hash: brain_backend::memory::compute_content_hash("Memory belonging to project two with unique content B"),
+        content_hash: brain_backend::memory::compute_content_hash(
+            "Memory belonging to project two with unique content B",
+        ),
         memory_type: "fact".to_string(),
         layer: "project".to_string(),
         importance: 0.7,
@@ -185,17 +203,29 @@ fn test_project_isolation() {
 
     // FTS search scoped to project 1 should NOT return project 2 memory
     let retriever = brain_backend::memory::MemoryRetriever::new(&conn);
-    let results_p1 = retriever.fts_search("Memory belonging", Some(1), 10).unwrap();
+    let results_p1 = retriever
+        .fts_search("Memory belonging", Some(1), 10)
+        .unwrap();
     for (id, _) in &results_p1 {
         let mem = repo.get_active(*id).unwrap().unwrap();
-        assert_eq!(mem.project_id, Some(1), "project 1 search should only return project 1 memories");
+        assert_eq!(
+            mem.project_id,
+            Some(1),
+            "project 1 search should only return project 1 memories"
+        );
     }
 
     // FTS search scoped to project 2
-    let results_p2 = retriever.fts_search("Memory belonging", Some(2), 10).unwrap();
+    let results_p2 = retriever
+        .fts_search("Memory belonging", Some(2), 10)
+        .unwrap();
     for (id, _) in &results_p2 {
         let mem = repo.get_active(*id).unwrap().unwrap();
-        assert_eq!(mem.project_id, Some(2), "project 2 search should only return project 2 memories");
+        assert_eq!(
+            mem.project_id,
+            Some(2),
+            "project 2 search should only return project 2 memories"
+        );
     }
 
     // List by project
@@ -219,7 +249,9 @@ fn test_memory_layers() {
         project_id: None,
         run_id: None,
         content: "Global user profile memory for system-wide preferences".to_string(),
-        content_hash: brain_backend::memory::compute_content_hash("Global user profile memory for system-wide preferences"),
+        content_hash: brain_backend::memory::compute_content_hash(
+            "Global user profile memory for system-wide preferences",
+        ),
         memory_type: "fact".to_string(),
         layer: "global_profile".to_string(),
         importance: 0.95,
@@ -234,7 +266,9 @@ fn test_memory_layers() {
         project_id: Some(1),
         run_id: None,
         content: "Project-specific memory about code architecture".to_string(),
-        content_hash: brain_backend::memory::compute_content_hash("Project-specific memory about code architecture"),
+        content_hash: brain_backend::memory::compute_content_hash(
+            "Project-specific memory about code architecture",
+        ),
         memory_type: "fact".to_string(),
         layer: "project".to_string(),
         importance: 0.8,
@@ -249,7 +283,9 @@ fn test_memory_layers() {
         project_id: Some(1),
         run_id: Some(1),
         content: "Episodic memory from a specific run execution event".to_string(),
-        content_hash: brain_backend::memory::compute_content_hash("Episodic memory from a specific run execution event"),
+        content_hash: brain_backend::memory::compute_content_hash(
+            "Episodic memory from a specific run execution event",
+        ),
         memory_type: "episode".to_string(),
         layer: "episodic".to_string(),
         importance: 0.5,
@@ -264,7 +300,9 @@ fn test_memory_layers() {
         project_id: Some(1),
         run_id: Some(1),
         content: "Working memory for current task context and state".to_string(),
-        content_hash: brain_backend::memory::compute_content_hash("Working memory for current task context and state"),
+        content_hash: brain_backend::memory::compute_content_hash(
+            "Working memory for current task context and state",
+        ),
         memory_type: "fact".to_string(),
         layer: "working".to_string(),
         importance: 0.3,
@@ -363,7 +401,9 @@ fn test_supersede() {
         project_id: Some(1),
         run_id: None,
         content: "Old version of a memory that will be superseded".to_string(),
-        content_hash: brain_backend::memory::compute_content_hash("Old version of a memory that will be superseded"),
+        content_hash: brain_backend::memory::compute_content_hash(
+            "Old version of a memory that will be superseded",
+        ),
         memory_type: "fact".to_string(),
         layer: "project".to_string(),
         importance: 0.5,
@@ -377,7 +417,9 @@ fn test_supersede() {
         project_id: Some(1),
         run_id: None,
         content: "New version of a memory that supersedes the old one".to_string(),
-        content_hash: brain_backend::memory::compute_content_hash("New version of a memory that supersedes the old one"),
+        content_hash: brain_backend::memory::compute_content_hash(
+            "New version of a memory that supersedes the old one",
+        ),
         memory_type: "fact".to_string(),
         layer: "project".to_string(),
         importance: 0.7,
@@ -415,7 +457,9 @@ fn test_touch_and_count() {
         project_id: Some(1),
         run_id: None,
         content: "Memory for touch and access count testing purposes".to_string(),
-        content_hash: brain_backend::memory::compute_content_hash("Memory for touch and access count testing purposes"),
+        content_hash: brain_backend::memory::compute_content_hash(
+            "Memory for touch and access count testing purposes",
+        ),
         memory_type: "fact".to_string(),
         layer: "project".to_string(),
         importance: 0.5,
@@ -462,7 +506,9 @@ fn test_vec0_knn_search() {
         project_id: Some(1),
         run_id: None,
         content: "First memory with unique content about alpha topic".to_string(),
-        content_hash: brain_backend::memory::compute_content_hash("First memory with unique content about alpha topic"),
+        content_hash: brain_backend::memory::compute_content_hash(
+            "First memory with unique content about alpha topic",
+        ),
         memory_type: "fact".to_string(),
         layer: "project".to_string(),
         importance: 0.5,
@@ -475,7 +521,9 @@ fn test_vec0_knn_search() {
         project_id: Some(1),
         run_id: None,
         content: "Second memory with unique content about beta topic".to_string(),
-        content_hash: brain_backend::memory::compute_content_hash("Second memory with unique content about beta topic"),
+        content_hash: brain_backend::memory::compute_content_hash(
+            "Second memory with unique content about beta topic",
+        ),
         memory_type: "fact".to_string(),
         layer: "project".to_string(),
         importance: 0.5,
@@ -492,8 +540,14 @@ fn test_vec0_knn_search() {
     assert!(!results.is_empty(), "KNN search should return results");
 
     // First result should be id1 (exact match, distance 0)
-    assert_eq!(results[0].memory_id, id1, "first result should be the exact match");
-    assert!(results[0].distance < 0.01, "exact match distance should be near 0");
+    assert_eq!(
+        results[0].memory_id, id1,
+        "first result should be the exact match"
+    );
+    assert!(
+        results[0].distance < 0.01,
+        "exact match distance should be near 0"
+    );
 
     // Count
     let count = store.count(1024).unwrap();
@@ -515,7 +569,9 @@ fn test_vec0_search_project_isolation() {
         project_id: Some(1),
         run_id: None,
         content: "Project one vector search isolation test memory content".to_string(),
-        content_hash: brain_backend::memory::compute_content_hash("Project one vector search isolation test memory content"),
+        content_hash: brain_backend::memory::compute_content_hash(
+            "Project one vector search isolation test memory content",
+        ),
         memory_type: "fact".to_string(),
         layer: "project".to_string(),
         importance: 0.8,
@@ -528,7 +584,9 @@ fn test_vec0_search_project_isolation() {
         project_id: Some(2),
         run_id: None,
         content: "Project two vector search isolation test memory content".to_string(),
-        content_hash: brain_backend::memory::compute_content_hash("Project two vector search isolation test memory content"),
+        content_hash: brain_backend::memory::compute_content_hash(
+            "Project two vector search isolation test memory content",
+        ),
         memory_type: "fact".to_string(),
         layer: "project".to_string(),
         importance: 0.8,
@@ -541,8 +599,14 @@ fn test_vec0_search_project_isolation() {
     let _id2 = repo.insert_atomic(&mem_p2, Some(&emb)).unwrap();
 
     // Vector search scoped to project 1 via retriever
-    let result = retriever.retrieve("test query", Some(1), 1, Some(&emb), 10).unwrap();
+    let result = retriever
+        .retrieve("test query", Some(1), 1, Some(&emb), 10)
+        .unwrap();
     for mem in &result.memories {
-        assert_eq!(mem.project_id, Some(1), "search scoped to project 1 should only return project 1 memories");
+        assert_eq!(
+            mem.project_id,
+            Some(1),
+            "search scoped to project 1 should only return project 1 memories"
+        );
     }
 }

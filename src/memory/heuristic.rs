@@ -34,14 +34,22 @@ pub fn check_content(content: &str) -> HeuristicResult {
     if trimmed.len() < MIN_CONTENT_LENGTH {
         return HeuristicResult {
             passed: false,
-            reason: Some(format!("content too short: {} chars (min {})", trimmed.len(), MIN_CONTENT_LENGTH)),
+            reason: Some(format!(
+                "content too short: {} chars (min {})",
+                trimmed.len(),
+                MIN_CONTENT_LENGTH
+            )),
         };
     }
 
     if trimmed.len() > MAX_CONTENT_LENGTH {
         return HeuristicResult {
             passed: false,
-            reason: Some(format!("content too long: {} chars (max {})", trimmed.len(), MAX_CONTENT_LENGTH)),
+            reason: Some(format!(
+                "content too long: {} chars (max {})",
+                trimmed.len(),
+                MAX_CONTENT_LENGTH
+            )),
         };
     }
 
@@ -63,7 +71,10 @@ pub fn check_content(content: &str) -> HeuristicResult {
         }
     }
 
-    if trimmed.chars().all(|c| c.is_ascii_digit() || c.is_whitespace()) {
+    if trimmed
+        .chars()
+        .all(|c| c.is_ascii_digit() || c.is_whitespace())
+    {
         return HeuristicResult {
             passed: false,
             reason: Some("content is only digits".to_string()),
@@ -88,9 +99,11 @@ pub fn find_similar_in_batch(contents: &[&str]) -> Vec<(usize, usize, f64)> {
     let mut duplicates: Vec<(usize, usize, f64)> = Vec::new();
 
     for i in 0..contents.len() {
-        let prefix_i = contents[i][..contents[i].len().min(DUPLICATE_CHECK_PREFIX_LEN)].to_lowercase();
+        let prefix_i =
+            contents[i][..contents[i].len().min(DUPLICATE_CHECK_PREFIX_LEN)].to_lowercase();
         for j in (i + 1)..contents.len() {
-            let prefix_j = contents[j][..contents[j].len().min(DUPLICATE_CHECK_PREFIX_LEN)].to_lowercase();
+            let prefix_j =
+                contents[j][..contents[j].len().min(DUPLICATE_CHECK_PREFIX_LEN)].to_lowercase();
             if prefix_i == prefix_j {
                 let similarity = compute_jaccard(contents[i], contents[j]);
                 if similarity > 0.8 {

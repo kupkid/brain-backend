@@ -1,3 +1,3 @@
 pub mod repository;
 
-pub use repository::{ProjectRepository, NewProject, StoredProject};
+pub use repository::{NewProject, ProjectRepository, StoredProject};

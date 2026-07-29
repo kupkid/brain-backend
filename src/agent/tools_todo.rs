@@ -1,7 +1,7 @@
-use std::sync::{Arc, Mutex};
+use crate::agent::todo::{NewTodo, TodoRepository};
+use crate::agent::tool_trait::{Tool, ToolImportance, ToolOutput};
 use rusqlite::Connection;
-use crate::agent::tool_trait::{Tool, ToolOutput, ToolImportance};
-use crate::agent::todo::{TodoRepository, NewTodo};
+use std::sync::{Arc, Mutex};
 
 pub struct TodoCreate {
     conn: Arc<Mutex<Connection>>,
@@ -15,8 +15,12 @@ impl TodoCreate {
 }
 
 impl Tool for TodoCreate {
-    fn name(&self) -> &str { "todo_create" }
-    fn description(&self) -> &str { "Create todo tasks for tracking agent progress." }
+    fn name(&self) -> &str {
+        "todo_create"
+    }
+    fn description(&self) -> &str {
+        "Create todo tasks for tracking agent progress."
+    }
     fn parameters(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
@@ -39,15 +43,23 @@ impl Tool for TodoCreate {
     }
     fn execute(&self, args: &serde_json::Value) -> Result<ToolOutput, String> {
         let tasks_raw = args["tasks"].as_array().ok_or("missing 'tasks'")?;
-        let tasks: Vec<NewTodo> = tasks_raw.iter().map(|t| NewTodo {
-            task_id: t["id"].as_str().unwrap_or("").to_string(),
-            title: t["title"].as_str().unwrap_or("").to_string(),
-            description: t["description"].as_str().unwrap_or("").to_string(),
-        }).collect();
+        let tasks: Vec<NewTodo> = tasks_raw
+            .iter()
+            .map(|t| NewTodo {
+                task_id: t["id"].as_str().unwrap_or("").to_string(),
+                title: t["title"].as_str().unwrap_or("").to_string(),
+                description: t["description"].as_str().unwrap_or("").to_string(),
+            })
+            .collect();
         let repo = TodoRepository::new(Arc::clone(&self.conn));
-        let items = repo.create_batch(self.run_id, &tasks).map_err(|e| e.to_string())?;
+        let items = repo
+            .create_batch(self.run_id, &tasks)
+            .map_err(|e| e.to_string())?;
         let ids: Vec<&str> = items.iter().map(|i| i.task_id.as_str()).collect();
-        Ok(ToolOutput::text(&format!("created {}: {}", items.len(), ids.join(", ")), ToolImportance::High))
+        Ok(ToolOutput::text(
+            &format!("created {}: {}", items.len(), ids.join(", ")),
+            ToolImportance::High,
+        ))
     }
 }
 
@@ -63,8 +75,12 @@ impl TodoUpdate {
 }
 
 impl Tool for TodoUpdate {
-    fn name(&self) -> &str { "todo_update" }
-    fn description(&self) -> &str { "Update a todo task status." }
+    fn name(&self) -> &str {
+        "todo_update"
+    }
+    fn description(&self) -> &str {
+        "Update a todo task status."
+    }
     fn parameters(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
@@ -79,9 +95,14 @@ impl Tool for TodoUpdate {
         let task_id = args["task_id"].as_str().ok_or("missing 'task_id'")?;
         let status = args["status"].as_str().ok_or("missing 'status'")?;
         let repo = TodoRepository::new(Arc::clone(&self.conn));
-        let item = repo.update_status(self.run_id, task_id, status).map_err(|e| e.to_string())?;
+        let item = repo
+            .update_status(self.run_id, task_id, status)
+            .map_err(|e| e.to_string())?;
         match item {
-            Some(i) => Ok(ToolOutput::text(&format!("{} → {}", i.task_id, i.status), ToolImportance::High)),
+            Some(i) => Ok(ToolOutput::text(
+                &format!("{} → {}", i.task_id, i.status),
+                ToolImportance::High,
+            )),
             None => Err(format!("task '{task_id}' not found")),
         }
     }
@@ -99,15 +120,22 @@ impl TodoList {
 }
 
 impl Tool for TodoList {
-    fn name(&self) -> &str { "todo_list" }
-    fn description(&self) -> &str { "List all todos for the current run." }
+    fn name(&self) -> &str {
+        "todo_list"
+    }
+    fn description(&self) -> &str {
+        "List all todos for the current run."
+    }
     fn parameters(&self) -> serde_json::Value {
         serde_json::json!({ "type": "object", "properties": {} })
     }
     fn execute(&self, _args: &serde_json::Value) -> Result<ToolOutput, String> {
         let repo = TodoRepository::new(Arc::clone(&self.conn));
         let items = repo.list_by_run(self.run_id).map_err(|e| e.to_string())?;
-        let lines: Vec<String> = items.iter().map(|i| format!("[{}] {}: {}", i.status, i.task_id, i.title)).collect();
+        let lines: Vec<String> = items
+            .iter()
+            .map(|i| format!("[{}] {}: {}", i.status, i.task_id, i.title))
+            .collect();
         Ok(ToolOutput::text(&lines.join("\n"), ToolImportance::High))
     }
 }

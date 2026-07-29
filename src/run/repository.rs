@@ -1,8 +1,8 @@
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use tracing::info;
 
-use crate::db::ids;
 use super::state::RunStatus;
+use crate::db::ids;
 
 #[derive(Debug, Clone)]
 pub struct NewRun {
@@ -47,7 +47,13 @@ impl<'a> RunRepository<'a> {
         let result = self.conn.execute(
             "INSERT INTO runs (uuid, project_id, agent_name, goal, context_json)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![uuid, run.project_id, run.agent_name, run.goal, run.context_json],
+            params![
+                uuid,
+                run.project_id,
+                run.agent_name,
+                run.goal,
+                run.context_json
+            ],
         );
 
         if let Err(e) = result {
@@ -115,11 +121,11 @@ impl<'a> RunRepository<'a> {
         self.conn.execute_batch("BEGIN IMMEDIATE;")?;
 
         // Get current status
-        let current_status: String = self.conn.query_row(
-            "SELECT status FROM runs WHERE id = ?1",
-            params![id],
-            |r| r.get(0),
-        )?;
+        let current_status: String =
+            self.conn
+                .query_row("SELECT status FROM runs WHERE id = ?1", params![id], |r| {
+                    r.get(0)
+                })?;
 
         let current = RunStatus::parse_status(&current_status)
             .ok_or_else(|| anyhow::anyhow!("invalid current status: {}", current_status))?;
@@ -136,11 +142,14 @@ impl<'a> RunRepository<'a> {
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
         // Update run
-        let _completed_at = matches!(new_status, RunStatus::Completed | RunStatus::Failed | RunStatus::Cancelled)
-            .then(|| {
-                // Will be set by DB default
-                String::new()
-            });
+        let _completed_at = matches!(
+            new_status,
+            RunStatus::Completed | RunStatus::Failed | RunStatus::Cancelled
+        )
+        .then(|| {
+            // Will be set by DB default
+            String::new()
+        });
 
         self.conn.execute(
             "UPDATE runs
@@ -161,7 +170,12 @@ impl<'a> RunRepository<'a> {
 
         self.conn.execute_batch("COMMIT;")?;
 
-        info!("run {} transitioned: {} → {}", id, current.as_str(), new_status.as_str());
+        info!(
+            "run {} transitioned: {} → {}",
+            id,
+            current.as_str(),
+            new_status.as_str()
+        );
         Ok(())
     }
 
@@ -172,53 +186,57 @@ impl<'a> RunRepository<'a> {
         status: Option<&str>,
         limit: usize,
     ) -> anyhow::Result<Vec<StoredRun>> {
-        let (sql, param_values): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match (project_id, status) {
-            (Some(pid), Some(s)) => (
-                "SELECT id, uuid, project_id, agent_name, goal, context_json,
+        let (sql, param_values): (String, Vec<Box<dyn rusqlite::types::ToSql>>) =
+            match (project_id, status) {
+                (Some(pid), Some(s)) => (
+                    "SELECT id, uuid, project_id, agent_name, goal, context_json,
                         status, summary, tokens_used, cost_cents,
                         created_at, updated_at, completed_at
                  FROM runs WHERE project_id = ?1 AND status = ?2
-                 ORDER BY created_at DESC LIMIT ?3".to_string(),
-                vec![
-                    Box::new(pid) as Box<dyn rusqlite::types::ToSql>,
-                    Box::new(s.to_string()),
-                    Box::new(limit as i64),
-                ],
-            ),
-            (Some(pid), None) => (
-                "SELECT id, uuid, project_id, agent_name, goal, context_json,
+                 ORDER BY created_at DESC LIMIT ?3"
+                        .to_string(),
+                    vec![
+                        Box::new(pid) as Box<dyn rusqlite::types::ToSql>,
+                        Box::new(s.to_string()),
+                        Box::new(limit as i64),
+                    ],
+                ),
+                (Some(pid), None) => (
+                    "SELECT id, uuid, project_id, agent_name, goal, context_json,
                         status, summary, tokens_used, cost_cents,
                         created_at, updated_at, completed_at
                  FROM runs WHERE project_id = ?1
-                 ORDER BY created_at DESC LIMIT ?2".to_string(),
-                vec![
-                    Box::new(pid) as Box<dyn rusqlite::types::ToSql>,
-                    Box::new(limit as i64),
-                ],
-            ),
-            (None, Some(s)) => (
-                "SELECT id, uuid, project_id, agent_name, goal, context_json,
+                 ORDER BY created_at DESC LIMIT ?2"
+                        .to_string(),
+                    vec![
+                        Box::new(pid) as Box<dyn rusqlite::types::ToSql>,
+                        Box::new(limit as i64),
+                    ],
+                ),
+                (None, Some(s)) => (
+                    "SELECT id, uuid, project_id, agent_name, goal, context_json,
                         status, summary, tokens_used, cost_cents,
                         created_at, updated_at, completed_at
                  FROM runs WHERE status = ?1
-                 ORDER BY created_at DESC LIMIT ?2".to_string(),
-                vec![
-                    Box::new(s.to_string()),
-                    Box::new(limit as i64),
-                ],
-            ),
-            (None, None) => (
-                "SELECT id, uuid, project_id, agent_name, goal, context_json,
+                 ORDER BY created_at DESC LIMIT ?2"
+                        .to_string(),
+                    vec![Box::new(s.to_string()), Box::new(limit as i64)],
+                ),
+                (None, None) => (
+                    "SELECT id, uuid, project_id, agent_name, goal, context_json,
                         status, summary, tokens_used, cost_cents,
                         created_at, updated_at, completed_at
                  FROM runs
-                 ORDER BY created_at DESC LIMIT ?1".to_string(),
-                vec![Box::new(limit as i64)],
-            ),
-        };
+                 ORDER BY created_at DESC LIMIT ?1"
+                        .to_string(),
+                    vec![Box::new(limit as i64)],
+                ),
+            };
 
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
-        let runs = self.conn
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+        let runs = self
+            .conn
             .prepare(&sql)?
             .query_map(param_refs.as_slice(), |r| {
                 Ok(StoredRun {

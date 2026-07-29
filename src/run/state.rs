@@ -110,42 +110,106 @@ mod tests {
 
     #[test]
     fn valid_transitions() {
-        assert!(RunStateMachine::validate_transition(
-            &RunStatus::Pending, &RunStatus::Running, false, false, false, 0
-        ).is_ok());
+        assert!(
+            RunStateMachine::validate_transition(
+                &RunStatus::Pending,
+                &RunStatus::Running,
+                false,
+                false,
+                false,
+                0
+            )
+            .is_ok()
+        );
 
-        assert!(RunStateMachine::validate_transition(
-            &RunStatus::Running, &RunStatus::Completed, true, false, false, 0
-        ).is_ok());
+        assert!(
+            RunStateMachine::validate_transition(
+                &RunStatus::Running,
+                &RunStatus::Completed,
+                true,
+                false,
+                false,
+                0
+            )
+            .is_ok()
+        );
 
-        assert!(RunStateMachine::validate_transition(
-            &RunStatus::Running, &RunStatus::Failed, false, true, false, 0
-        ).is_ok());
+        assert!(
+            RunStateMachine::validate_transition(
+                &RunStatus::Running,
+                &RunStatus::Failed,
+                false,
+                true,
+                false,
+                0
+            )
+            .is_ok()
+        );
 
-        assert!(RunStateMachine::validate_transition(
-            &RunStatus::Running, &RunStatus::Paused, false, false, false, 0
-        ).is_ok());
+        assert!(
+            RunStateMachine::validate_transition(
+                &RunStatus::Running,
+                &RunStatus::Paused,
+                false,
+                false,
+                false,
+                0
+            )
+            .is_ok()
+        );
 
-        assert!(RunStateMachine::validate_transition(
-            &RunStatus::Paused, &RunStatus::Running, false, false, false, 0
-        ).is_ok());
+        assert!(
+            RunStateMachine::validate_transition(
+                &RunStatus::Paused,
+                &RunStatus::Running,
+                false,
+                false,
+                false,
+                0
+            )
+            .is_ok()
+        );
     }
 
     #[test]
     fn invalid_transitions() {
-        assert!(RunStateMachine::validate_transition(
-            &RunStatus::Pending, &RunStatus::Completed, false, false, false, 0
-        ).is_err());
+        assert!(
+            RunStateMachine::validate_transition(
+                &RunStatus::Pending,
+                &RunStatus::Completed,
+                false,
+                false,
+                false,
+                0
+            )
+            .is_err()
+        );
 
-        assert!(RunStateMachine::validate_transition(
-            &RunStatus::Completed, &RunStatus::Running, false, false, false, 0
-        ).is_err());
+        assert!(
+            RunStateMachine::validate_transition(
+                &RunStatus::Completed,
+                &RunStatus::Running,
+                false,
+                false,
+                false,
+                0
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn pending_tools_block_transition() {
-        assert!(RunStateMachine::validate_transition(
-            &RunStatus::Running, &RunStatus::Completed, true, false, false, 2
-        ).is_err());
+        assert!(
+            RunStateMachine::validate_transition(
+                &RunStatus::Running,
+                &RunStatus::Completed,
+                true,
+                false,
+                false,
+                2
+            )
+            .is_err()
+        );
     }
 }

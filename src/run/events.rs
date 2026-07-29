@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::db::ids;
 
@@ -78,7 +78,7 @@ impl<'a> EventStore<'a> {
     pub fn get_events(&self, run_id: i64) -> anyhow::Result<Vec<RunEvent>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, run_id, event_uuid, seq, event_type, payload, created_at
-             FROM run_events WHERE run_id = ?1 ORDER BY seq"
+             FROM run_events WHERE run_id = ?1 ORDER BY seq",
         )?;
         let events = stmt
             .query_map(params![run_id], |r| {
@@ -100,7 +100,7 @@ impl<'a> EventStore<'a> {
     pub fn get_events_after(&self, run_id: i64, after_seq: i64) -> anyhow::Result<Vec<RunEvent>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, run_id, event_uuid, seq, event_type, payload, created_at
-             FROM run_events WHERE run_id = ?1 AND seq > ?2 ORDER BY seq"
+             FROM run_events WHERE run_id = ?1 AND seq > ?2 ORDER BY seq",
         )?;
         let events = stmt
             .query_map(params![run_id, after_seq], |r| {

@@ -1,12 +1,12 @@
-pub mod repository;
 pub mod embedding;
-pub mod ingestion;
-pub mod retrieval;
 pub mod heuristic;
+pub mod ingestion;
+pub mod repository;
+pub mod retrieval;
 
-pub use repository::MemoryRepository;
 #[allow(unused_imports)]
 pub use embedding::MemoryEmbeddingStore;
-pub use ingestion::{MemoryIngestion, IngestResult, IngestParams, compute_content_hash};
-pub use retrieval::MemoryRetriever;
 pub use heuristic::{check_content, validate_layer_for_project};
+pub use ingestion::{IngestParams, IngestResult, MemoryIngestion, compute_content_hash};
+pub use repository::MemoryRepository;
+pub use retrieval::MemoryRetriever;

@@ -1,14 +1,18 @@
-use std::sync::{Arc, Mutex};
 use axum::extract::ws::{Message, WebSocket};
 use futures::StreamExt;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-use tokio::time::{interval, Duration};
+use tokio::time::{Duration, interval};
 use tracing::info;
 
-use crate::agent::{AgentLoop, AgentConfig, agent_loop::{WsAgentEvent, AgentMessage}, tools};
-use crate::provider::llm::LlmProvider;
-use crate::provider::embedding::EmbeddingProvider;
+use crate::agent::{
+    AgentConfig, AgentLoop,
+    agent_loop::{AgentMessage, WsAgentEvent},
+    tools,
+};
 use crate::db;
+use crate::provider::embedding::EmbeddingProvider;
+use crate::provider::llm::LlmProvider;
 
 #[derive(serde::Deserialize)]
 pub struct WsTaskRequest {
@@ -45,7 +49,10 @@ pub async fn run_agent_ws(
         }
     };
 
-    info!("WS agent task: {}", &request.task[..request.task.len().min(200)]);
+    info!(
+        "WS agent task: {}",
+        &request.task[..request.task.len().min(200)]
+    );
 
     // 2. Init DB
     let db_path = data_dir.join("brain.db");
@@ -65,7 +72,11 @@ pub async fn run_agent_ws(
     // Ensure default embedding collection
     {
         let c = conn.lock().unwrap();
-        let count: i64 = c.query_row("SELECT COUNT(*) FROM embedding_collections", [], |r| r.get(0)).unwrap_or(0);
+        let count: i64 = c
+            .query_row("SELECT COUNT(*) FROM embedding_collections", [], |r| {
+                r.get(0)
+            })
+            .unwrap_or(0);
         if count == 0 {
             use crate::db::ids;
             let uuid = ids::new_uuid_blob();
@@ -85,7 +96,8 @@ pub async fn run_agent_ws(
             "INSERT INTO runs (uuid, agent_name, goal, context_json, status)
              VALUES (?1, 'ws-agent', ?2, '{}', 'running')",
             rusqlite::params![uuid, request.task],
-        ).expect("failed to create run");
+        )
+        .expect("failed to create run");
         c.last_insert_rowid()
     };
 
@@ -102,9 +114,8 @@ pub async fn run_agent_ws(
     let llm = llm_factory(tools_schema);
     let (tx, mut rx) = mpsc::channel::<WsAgentEvent>(64);
 
-    let agent = AgentLoop::new(
-        llm, embedding, conn.clone(), toolbox, config, run_id,
-    ).with_event_sender(tx);
+    let agent =
+        AgentLoop::new(llm, embedding, conn.clone(), toolbox, config, run_id).with_event_sender(tx);
 
     // 5. Spawn agent task
     let task = request.task.clone();

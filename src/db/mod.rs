@@ -15,9 +15,7 @@ pub fn init_db(db_path: &Path) -> anyhow::Result<Connection> {
     let init_fn = std::hint::black_box(sqlite_vec::sqlite3_vec_init);
     #[allow(clippy::missing_transmute_annotations)]
     unsafe {
-        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
-            init_fn as *const (),
-        )));
+        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(init_fn as *const ())));
     }
 
     let conn = Connection::open(db_path)?;
@@ -67,6 +65,9 @@ pub fn ensure_vec_table(conn: &Connection, dimensions: i32) -> anyhow::Result<()
         );"
     ))?;
 
-    info!("ensured vec0 table: {} (float[{}], {})", table_name, dimensions, distance);
+    info!(
+        "ensured vec0 table: {} (float[{}], {})",
+        table_name, dimensions, distance
+    );
     Ok(())
 }

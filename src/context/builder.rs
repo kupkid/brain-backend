@@ -1,8 +1,8 @@
 use rusqlite::Connection;
 
-use crate::memory::{MemoryRepository};
-use crate::run::context::RunContextRepository;
+use crate::memory::MemoryRepository;
 use crate::project::ProjectRepository;
+use crate::run::context::RunContextRepository;
 
 #[derive(Debug, Clone)]
 pub struct ContextSlot {
@@ -71,10 +71,8 @@ impl<'a> ContextBuilder<'a> {
         if let Some(pid) = project_id {
             let proj_repo = ProjectRepository::new(self.conn, self.data_dir.clone());
             if let Ok(Some(project)) = proj_repo.get(pid) {
-                let project_context = format!(
-                    "Project: {}\nConfig: {}",
-                    project.name, project.config_json
-                );
+                let project_context =
+                    format!("Project: {}\nConfig: {}", project.name, project.config_json);
                 let tokens = estimate_tokens(&project_context);
                 slots.push(ContextSlot {
                     slot: "project".to_string(),
@@ -135,7 +133,8 @@ impl<'a> ContextBuilder<'a> {
             slots.push(ContextSlot {
                 slot: "memories".to_string(),
                 content: memories_text,
-                token_estimate: total_tokens - slots.iter().map(|s| s.token_estimate).sum::<usize>(),
+                token_estimate: total_tokens
+                    - slots.iter().map(|s| s.token_estimate).sum::<usize>(),
             });
         }
 

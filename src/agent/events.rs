@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentEvent {
@@ -110,7 +110,9 @@ impl EventBus {
 }
 
 impl Default for EventBus {
-    fn default() -> Self { Self::new(1024) }
+    fn default() -> Self {
+        Self::new(1024)
+    }
 }
 
 pub type SharedEventBus = Arc<EventBus>;

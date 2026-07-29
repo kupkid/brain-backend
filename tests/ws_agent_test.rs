@@ -1,10 +1,12 @@
+use brain_backend::agent::agent_loop::{AgentMessage, WsAgentEvent};
+use brain_backend::agent::tools;
+use brain_backend::agent::{AgentConfig, AgentLoop};
+use brain_backend::provider::embedding::{EmbeddingError, EmbeddingProvider};
+use brain_backend::provider::llm::{
+    LlmError, LlmMessage, LlmProvider, LlmResponse, LlmToolCall, LlmToolResult, StructuredOutput,
+};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-use brain_backend::agent::agent_loop::{WsAgentEvent, AgentMessage};
-use brain_backend::agent::{AgentLoop, AgentConfig};
-use brain_backend::agent::tools;
-use brain_backend::provider::llm::{LlmProvider, LlmMessage, LlmResponse, LlmToolCall, LlmToolResult, StructuredOutput, LlmError};
-use brain_backend::provider::embedding::{EmbeddingProvider, EmbeddingError};
 
 /// Mock LLM that returns one tool call (list_dir), then a final text response.
 struct MockLlm {
@@ -13,7 +15,9 @@ struct MockLlm {
 
 impl MockLlm {
     fn new() -> Self {
-        Self { call_count: std::sync::atomic::AtomicU32::new(0) }
+        Self {
+            call_count: std::sync::atomic::AtomicU32::new(0),
+        }
     }
 }
 
@@ -25,7 +29,9 @@ impl LlmProvider for MockLlm {
         _max_tokens: Option<usize>,
         _temperature: Option<f32>,
     ) -> Result<LlmResponse, LlmError> {
-        let n = self.call_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let n = self
+            .call_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if n == 0 {
             // First call: return tool call
             Ok(LlmResponse {
@@ -49,7 +55,9 @@ impl LlmProvider for MockLlm {
         _max_tokens: Option<usize>,
         _temperature: Option<f32>,
     ) -> Result<LlmToolResult, LlmError> {
-        let n = self.call_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let n = self
+            .call_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if n == 0 {
             // First call: return one tool call
             Ok(LlmToolResult {
@@ -80,8 +88,12 @@ impl LlmProvider for MockLlm {
         unimplemented!("not used in this test")
     }
 
-    fn model_name(&self) -> &str { "mock" }
-    async fn health_check(&self) -> bool { true }
+    fn model_name(&self) -> &str {
+        "mock"
+    }
+    async fn health_check(&self) -> bool {
+        true
+    }
 }
 
 /// Mock embedding provider
@@ -95,9 +107,15 @@ impl EmbeddingProvider for MockEmbedding {
     async fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbeddingError> {
         Ok(texts.iter().map(|_| vec![0.0; 1024]).collect())
     }
-    fn dimensions(&self) -> usize { 1024 }
-    fn model_name(&self) -> &str { "mock-embed" }
-    async fn health_check(&self) -> bool { true }
+    fn dimensions(&self) -> usize {
+        1024
+    }
+    fn model_name(&self) -> &str {
+        "mock-embed"
+    }
+    async fn health_check(&self) -> bool {
+        true
+    }
 }
 
 #[tokio::test]
@@ -110,7 +128,11 @@ async fn test_agent_events_flow() {
     // Ensure embedding collection
     {
         let c = conn.lock().unwrap();
-        let count: i64 = c.query_row("SELECT COUNT(*) FROM embedding_collections", [], |r| r.get(0)).unwrap_or(0);
+        let count: i64 = c
+            .query_row("SELECT COUNT(*) FROM embedding_collections", [], |r| {
+                r.get(0)
+            })
+            .unwrap_or(0);
         if count == 0 {
             let uuid = brain_backend::db::ids::new_uuid_blob();
             c.execute(
@@ -129,7 +151,8 @@ async fn test_agent_events_flow() {
             "INSERT INTO runs (uuid, agent_name, goal, context_json, status)
              VALUES (?1, 'test', 'test task', '{}', 'running')",
             [uuid],
-        ).unwrap();
+        )
+        .unwrap();
         c.last_insert_rowid()
     };
 
@@ -146,16 +169,16 @@ async fn test_agent_events_flow() {
 
     let (tx, mut rx) = mpsc::channel::<WsAgentEvent>(64);
 
-    let agent = AgentLoop::new(
-        llm, embedding, conn, toolbox, config, run_id,
-    ).with_event_sender(tx);
+    let agent = AgentLoop::new(llm, embedding, conn, toolbox, config, run_id).with_event_sender(tx);
 
     // Run agent
     let agent = Arc::new(agent);
     let agent_clone = Arc::clone(&agent);
     tokio::spawn(async move {
         let history: Vec<AgentMessage> = Vec::new();
-        agent_clone.process_message("Создай файл test.txt", &history).await
+        agent_clone
+            .process_message("Создай файл test.txt", &history)
+            .await
     });
 
     // Collect events
@@ -163,22 +186,37 @@ async fn test_agent_events_flow() {
     while let Some(ev) = rx.recv().await {
         let is_terminal = matches!(&ev, WsAgentEvent::Done { .. } | WsAgentEvent::Error { .. });
         events.push(ev);
-        if is_terminal { break; }
+        if is_terminal {
+            break;
+        }
     }
 
     // Verify events
     assert!(!events.is_empty(), "should receive at least one event");
 
-    let has_tool_call = events.iter().any(|e| matches!(e, WsAgentEvent::ToolCall { .. }));
-    let has_tool_result = events.iter().any(|e| matches!(e, WsAgentEvent::ToolResult { .. }));
-    let has_done = events.iter().any(|e| matches!(e, WsAgentEvent::Done { .. }));
+    let has_tool_call = events
+        .iter()
+        .any(|e| matches!(e, WsAgentEvent::ToolCall { .. }));
+    let has_tool_result = events
+        .iter()
+        .any(|e| matches!(e, WsAgentEvent::ToolResult { .. }));
+    let has_done = events
+        .iter()
+        .any(|e| matches!(e, WsAgentEvent::Done { .. }));
 
     assert!(has_tool_call, "should have tool_call event");
     assert!(has_tool_result, "should have tool_result event");
     assert!(has_done, "should have done event");
 
     // Verify done event has valid stats
-    if let Some(WsAgentEvent::Done { total_tokens, total_calls, .. }) = events.iter().find(|e| matches!(e, WsAgentEvent::Done { .. })) {
+    if let Some(WsAgentEvent::Done {
+        total_tokens,
+        total_calls,
+        ..
+    }) = events
+        .iter()
+        .find(|e| matches!(e, WsAgentEvent::Done { .. }))
+    {
         assert!(*total_tokens > 0, "total_tokens should be > 0");
         assert!(*total_calls > 0, "total_calls should be > 0");
     }
@@ -187,9 +225,20 @@ async fn test_agent_events_flow() {
     for ev in &events {
         match ev {
             WsAgentEvent::Thought { text, .. } => println!("  thought: {text}"),
-            WsAgentEvent::ToolCall { tool, call_id, .. } => println!("  tool_call: {tool} ({call_id})"),
-            WsAgentEvent::ToolResult { call_id, success, summary, .. } => println!("  tool_result: {call_id} success={success} {summary}"),
-            WsAgentEvent::Done { total_tokens, total_calls, .. } => println!("  done: {total_tokens} tokens, {total_calls} calls"),
+            WsAgentEvent::ToolCall { tool, call_id, .. } => {
+                println!("  tool_call: {tool} ({call_id})")
+            }
+            WsAgentEvent::ToolResult {
+                call_id,
+                success,
+                summary,
+                ..
+            } => println!("  tool_result: {call_id} success={success} {summary}"),
+            WsAgentEvent::Done {
+                total_tokens,
+                total_calls,
+                ..
+            } => println!("  done: {total_tokens} tokens, {total_calls} calls"),
             _ => println!("  other event"),
         }
     }
@@ -203,17 +252,36 @@ async fn test_agent_error_emits_error_event() {
 
     #[async_trait::async_trait]
     impl LlmProvider for FailingLlm {
-        async fn complete(&self, _: &[LlmMessage], _: Option<usize>, _: Option<f32>) -> Result<LlmResponse, LlmError> {
+        async fn complete(
+            &self,
+            _: &[LlmMessage],
+            _: Option<usize>,
+            _: Option<f32>,
+        ) -> Result<LlmResponse, LlmError> {
             Err(LlmError::Provider("mock failure".into()))
         }
-        async fn complete_with_tools(&self, _: &[LlmMessage], _: Option<usize>, _: Option<f32>) -> Result<LlmToolResult, LlmError> {
+        async fn complete_with_tools(
+            &self,
+            _: &[LlmMessage],
+            _: Option<usize>,
+            _: Option<f32>,
+        ) -> Result<LlmToolResult, LlmError> {
             Err(LlmError::Provider("mock failure".into()))
         }
-        async fn structured_complete(&self, _: &[LlmMessage], _: &serde_json::Value, _: Option<usize>) -> Result<StructuredOutput, LlmError> {
+        async fn structured_complete(
+            &self,
+            _: &[LlmMessage],
+            _: &serde_json::Value,
+            _: Option<usize>,
+        ) -> Result<StructuredOutput, LlmError> {
             unimplemented!()
         }
-        fn model_name(&self) -> &str { "failing" }
-        async fn health_check(&self) -> bool { true }
+        fn model_name(&self) -> &str {
+            "failing"
+        }
+        async fn health_check(&self) -> bool {
+            true
+        }
     }
 
     let tmp = tempfile::tempdir().unwrap();
@@ -228,7 +296,8 @@ async fn test_agent_error_emits_error_event() {
             "INSERT INTO runs (uuid, agent_name, goal, context_json, status)
              VALUES (?1, 'test', 'fail', '{}', 'running')",
             [uuid],
-        ).unwrap();
+        )
+        .unwrap();
         c.last_insert_rowid()
     };
 
@@ -244,8 +313,12 @@ async fn test_agent_error_emits_error_event() {
     let agent = AgentLoop::new(
         Arc::new(FailingLlm),
         Arc::new(MockEmbedding),
-        conn, toolbox, config, run_id,
-    ).with_event_sender(tx);
+        conn,
+        toolbox,
+        config,
+        run_id,
+    )
+    .with_event_sender(tx);
 
     let agent = Arc::new(agent);
     let agent_clone = Arc::clone(&agent);
@@ -258,10 +331,16 @@ async fn test_agent_error_emits_error_event() {
     while let Some(ev) = rx.recv().await {
         let is_terminal = matches!(&ev, WsAgentEvent::Done { .. } | WsAgentEvent::Error { .. });
         events.push(ev);
-        if is_terminal { break; }
+        if is_terminal {
+            break;
+        }
     }
 
     assert!(!events.is_empty());
-    assert!(events.iter().any(|e| matches!(e, WsAgentEvent::Error { .. })));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WsAgentEvent::Error { .. }))
+    );
     println!("Error test: {} events", events.len());
 }

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-use rusqlite::{params, Connection};
-use sha2::{Sha256, Digest};
+use rusqlite::{Connection, params};
+use sha2::{Digest, Sha256};
 use tracing::info;
 
 use super::repository::{MemoryRepository, NewMemory};
@@ -46,8 +46,13 @@ impl<'a> MemoryIngestion<'a> {
         let content_hash = compute_content_hash(&params.content);
         let repo = MemoryRepository::new(self.conn);
 
-        if let Some(existing_id) = repo.find_active_by_hash(params.project_id, params.collection_id, &content_hash)? {
-            info!("duplicate memory detected (hash match): existing_id={}", existing_id);
+        if let Some(existing_id) =
+            repo.find_active_by_hash(params.project_id, params.collection_id, &content_hash)?
+        {
+            info!(
+                "duplicate memory detected (hash match): existing_id={}",
+                existing_id
+            );
             return Ok(IngestResult {
                 memory_id: existing_id,
                 is_duplicate: true,
@@ -71,7 +76,10 @@ impl<'a> MemoryIngestion<'a> {
 
         let embedding = params.embedding.as_deref();
         let memory_id = repo.insert_atomic(&new_mem, embedding)?;
-        info!("ingested memory: id={}, type={}, layer={}", memory_id, params.memory_type, params.layer);
+        info!(
+            "ingested memory: id={}, type={}, layer={}",
+            memory_id, params.memory_type, params.layer
+        );
 
         Ok(IngestResult {
             memory_id,
@@ -88,7 +96,9 @@ impl<'a> MemoryIngestion<'a> {
         let content_hash = compute_content_hash(&params.content);
         let repo = MemoryRepository::new(self.conn);
 
-        if let Some(existing_id) = repo.find_active_by_hash(params.project_id, params.collection_id, &content_hash)? {
+        if let Some(existing_id) =
+            repo.find_active_by_hash(params.project_id, params.collection_id, &content_hash)?
+        {
             info!("exact duplicate, skipping: existing_id={}", existing_id);
             return Ok(IngestResult {
                 memory_id: existing_id,
@@ -98,7 +108,12 @@ impl<'a> MemoryIngestion<'a> {
         }
 
         let similar = if let Some(ref embedding) = params.embedding {
-            self.find_similar_for_supersede(embedding, params.collection_id, params.project_id, similarity_threshold)?
+            self.find_similar_for_supersede(
+                embedding,
+                params.collection_id,
+                params.project_id,
+                similarity_threshold,
+            )?
         } else {
             vec![]
         };
@@ -148,11 +163,10 @@ impl<'a> MemoryIngestion<'a> {
         )?;
 
         let table_name = format!("vec_mem_{}", dimensions);
-        let query_bytes: Vec<u8> = embedding.iter()
-            .flat_map(|f| f.to_le_bytes())
-            .collect();
+        let query_bytes: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
 
-        let results: Vec<(i64, f64)> = self.conn
+        let results: Vec<(i64, f64)> = self
+            .conn
             .prepare(&format!(
                 "SELECT v.vector_id, v.distance
                  FROM {table_name} v
@@ -164,9 +178,10 @@ impl<'a> MemoryIngestion<'a> {
                    AND m.collection_id = ?3
                  ORDER BY v.distance"
             ))?
-            .query_map(rusqlite::params![query_bytes, project_id, collection_id], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })?
+            .query_map(
+                rusqlite::params![query_bytes, project_id, collection_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?
             .collect::<Result<Vec<_>, _>>()?;
 
         let similar: Vec<(i64, f64)> = results

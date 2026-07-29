@@ -1,6 +1,6 @@
 pub mod providers;
 
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -42,7 +42,7 @@ impl<'a> ProviderSettingsRepository<'a> {
             "SELECT base_url, llm_model, llm_max_tokens, embedding_model, embedding_dimensions, embedding_endpoint
              FROM provider_settings WHERE id = 1"
         )?;
-        let mut rows = stmt.query([],)?;
+        let mut rows = stmt.query([])?;
         if let Some(row) = rows.next()? {
             Ok(Some(ProviderSettings {
                 base_url: row.get::<_, String>(0)?,
@@ -57,26 +57,38 @@ impl<'a> ProviderSettingsRepository<'a> {
         }
     }
 
-    pub fn save(
-        &self,
-        master_key: &[u8; 32],
-        req: &SaveProviderRequest,
-    ) -> anyhow::Result<()> {
+    pub fn save(&self, master_key: &[u8; 32], req: &SaveProviderRequest) -> anyhow::Result<()> {
         let vault = VaultRepository::new(self.conn);
-        let key_version = vault.get_active_master_key_version()?
+        let key_version = vault
+            .get_active_master_key_version()?
             .ok_or_else(|| anyhow::anyhow!("no active vault key"))?;
 
         let (enc_dek, dek_nonce, ciphertext, ct_nonce) = if let Some(ref api_key) = req.api_key {
             if api_key.is_empty() {
-                (Vec::<u8>::new(), Vec::<u8>::new(), Vec::<u8>::new(), Vec::<u8>::new())
+                (
+                    Vec::<u8>::new(),
+                    Vec::<u8>::new(),
+                    Vec::<u8>::new(),
+                    Vec::<u8>::new(),
+                )
             } else {
                 let dek = VaultCrypto::generate_dek();
                 let enc_dek = VaultCrypto::encrypt_dek(master_key, &dek)?;
                 let enc_val = VaultCrypto::encrypt_value(&dek, api_key.as_bytes())?;
-                (enc_dek.ciphertext, enc_dek.nonce, enc_val.ciphertext, enc_val.nonce)
+                (
+                    enc_dek.ciphertext,
+                    enc_dek.nonce,
+                    enc_val.ciphertext,
+                    enc_val.nonce,
+                )
             }
         } else {
-            (Vec::<u8>::new(), Vec::<u8>::new(), Vec::<u8>::new(), Vec::<u8>::new())
+            (
+                Vec::<u8>::new(),
+                Vec::<u8>::new(),
+                Vec::<u8>::new(),
+                Vec::<u8>::new(),
+            )
         };
 
         let llm_max_tokens = req.llm_max_tokens.unwrap_or(8192);
@@ -122,7 +134,7 @@ impl<'a> ProviderSettingsRepository<'a> {
             "SELECT api_key_encrypted, api_key_dek_nonce, api_key_ciphertext, api_key_ciphertext_nonce
              FROM provider_settings WHERE id = 1"
         )?;
-        let mut rows = stmt.query([],)?;
+        let mut rows = stmt.query([])?;
 
         if let Some(row) = rows.next()? {
             let ed: Vec<u8> = row.get(0)?;
@@ -143,7 +155,9 @@ impl<'a> ProviderSettingsRepository<'a> {
     }
 
     pub fn delete(&self) -> anyhow::Result<bool> {
-        let affected = self.conn.execute("DELETE FROM provider_settings WHERE id = 1", [])?;
+        let affected = self
+            .conn
+            .execute("DELETE FROM provider_settings WHERE id = 1", [])?;
         Ok(affected > 0)
     }
 }

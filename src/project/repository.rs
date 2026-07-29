@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use tracing::info;
 
 use crate::db::ids;
@@ -34,7 +34,8 @@ impl<'a> ProjectRepository<'a> {
     pub fn create(&self, project: &NewProject) -> anyhow::Result<i64> {
         let uuid = ids::new_uuid();
         let uuid_hex = uuid.as_simple().to_string();
-        let root_path = self.data_dir
+        let root_path = self
+            .data_dir
             .join("projects")
             .join(&uuid_hex)
             .join("workspace");
@@ -47,11 +48,19 @@ impl<'a> ProjectRepository<'a> {
         self.conn.execute(
             "INSERT INTO projects (uuid, name, root_path, config_json)
              VALUES (?1, ?2, ?3, ?4)",
-            params![uuid_bytes, project.name, root_path.to_str().unwrap(), project.config_json],
+            params![
+                uuid_bytes,
+                project.name,
+                root_path.to_str().unwrap(),
+                project.config_json
+            ],
         )?;
 
         let id = self.conn.last_insert_rowid();
-        info!("created project: id={}, name={}, uuid={}", id, project.name, uuid_hex);
+        info!(
+            "created project: id={}, name={}, uuid={}",
+            id, project.name, uuid_hex
+        );
         Ok(id)
     }
 
@@ -105,7 +114,7 @@ impl<'a> ProjectRepository<'a> {
     pub fn list(&self, limit: usize) -> anyhow::Result<Vec<StoredProject>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, uuid, name, root_path, config_json, created_at, updated_at
-             FROM projects ORDER BY created_at DESC LIMIT ?1"
+             FROM projects ORDER BY created_at DESC LIMIT ?1",
         )?;
         let projects = stmt
             .query_map(params![limit], |r| {
@@ -125,10 +134,9 @@ impl<'a> ProjectRepository<'a> {
 
     /// Delete project
     pub fn delete(&self, id: i64) -> anyhow::Result<bool> {
-        let affected = self.conn.execute(
-            "DELETE FROM projects WHERE id = ?1",
-            params![id],
-        )?;
+        let affected = self
+            .conn
+            .execute("DELETE FROM projects WHERE id = ?1", params![id])?;
         Ok(affected > 0)
     }
 }

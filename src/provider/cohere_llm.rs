@@ -4,7 +4,10 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use super::llm::{LlmError, LlmMessage, LlmProvider, LlmResponse, LlmToolCall, LlmToolResult, StreamChunk, StructuredOutput};
+use super::llm::{
+    LlmError, LlmMessage, LlmProvider, LlmResponse, LlmToolCall, LlmToolResult, StreamChunk,
+    StructuredOutput,
+};
 
 pub struct CohereLlm {
     client: Client,
@@ -97,7 +100,8 @@ impl CohereLlm {
             client: Client::new(),
             api_key,
             model: model.unwrap_or_else(|| "command-a-plus-05-2026".to_string()),
-            base_url: base_url.unwrap_or_else(|| "https://api.cohere.ai/compatibility/v1".to_string()),
+            base_url: base_url
+                .unwrap_or_else(|| "https://api.cohere.ai/compatibility/v1".to_string()),
             tools_json: None,
         }
     }
@@ -113,8 +117,12 @@ impl CohereLlm {
         let body = serde_json::to_string_pretty(&request).unwrap_or_default();
         // Log just the messages array structure
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body)
-            && let Some(msgs) = v.get("messages") {
-            info!("request messages: {}", serde_json::to_string(msgs).unwrap_or_default());
+            && let Some(msgs) = v.get("messages")
+        {
+            info!(
+                "request messages: {}",
+                serde_json::to_string(msgs).unwrap_or_default()
+            );
         }
         let response = self
             .client
@@ -168,10 +176,17 @@ impl CohereLlm {
         let response = self.send_request(request).await?;
         let usage = response.usage.and_then(|u| u.total_tokens).unwrap_or(0);
 
-        let choice = response.choices.first().ok_or_else(|| LlmError::Provider("no choices".to_string()))?;
+        let choice = response
+            .choices
+            .first()
+            .ok_or_else(|| LlmError::Provider("no choices".to_string()))?;
         let content = choice.message.content.clone().unwrap_or_default();
 
-        let tool_calls: Vec<LlmToolCall> = choice.message.tool_calls.clone().unwrap_or_default()
+        let tool_calls: Vec<LlmToolCall> = choice
+            .message
+            .tool_calls
+            .clone()
+            .unwrap_or_default()
             .into_iter()
             .filter_map(|tc| {
                 let args: serde_json::Value = serde_json::from_str(&tc.function.arguments).ok()?;
@@ -183,9 +198,18 @@ impl CohereLlm {
             })
             .collect();
 
-        info!("LLM complete: model={}, tokens={}, tool_calls={}", self.model, usage, tool_calls.len());
+        info!(
+            "LLM complete: model={}, tokens={}, tool_calls={}",
+            self.model,
+            usage,
+            tool_calls.len()
+        );
 
-        Ok(LlmToolResult { content, tool_calls, tokens_used: usage })
+        Ok(LlmToolResult {
+            content,
+            tool_calls,
+            tokens_used: usage,
+        })
     }
 }
 
@@ -197,7 +221,9 @@ impl LlmProvider for CohereLlm {
         max_tokens: Option<usize>,
         temperature: Option<f32>,
     ) -> Result<LlmResponse, LlmError> {
-        let result = self.complete_with_tools_raw(messages, max_tokens, temperature).await?;
+        let result = self
+            .complete_with_tools_raw(messages, max_tokens, temperature)
+            .await?;
         Ok(LlmResponse {
             content: result.content,
             tokens_used: result.tokens_used,
@@ -211,7 +237,8 @@ impl LlmProvider for CohereLlm {
         max_tokens: Option<usize>,
         temperature: Option<f32>,
     ) -> Result<LlmToolResult, LlmError> {
-        self.complete_with_tools_raw(messages, max_tokens, temperature).await
+        self.complete_with_tools_raw(messages, max_tokens, temperature)
+            .await
     }
 
     async fn complete_stream(
@@ -258,14 +285,19 @@ impl LlmProvider for CohereLlm {
         let mut full_content = String::new();
 
         while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result.map_err(|e| LlmError::Provider(format!("stream read error: {e}")))?;
+            let chunk =
+                chunk_result.map_err(|e| LlmError::Provider(format!("stream read error: {e}")))?;
             let text = String::from_utf8_lossy(&chunk);
 
             for line in text.lines() {
                 let line = line.trim();
-                if line.is_empty() || !line.starts_with("data: ") { continue; }
+                if line.is_empty() || !line.starts_with("data: ") {
+                    continue;
+                }
                 let data = &line[6..];
-                if data == "[DONE]" { continue; }
+                if data == "[DONE]" {
+                    continue;
+                }
 
                 if let Ok(sr) = serde_json::from_str::<StreamResponse>(data)
                     && let Some(choice) = sr.choices.first()
@@ -273,20 +305,24 @@ impl LlmProvider for CohereLlm {
                     && let Some(content) = &delta.content
                 {
                     full_content.push_str(content);
-                    let _ = tx.send(StreamChunk {
-                        delta: content.clone(),
-                        finished: false,
-                        tokens_used: None,
-                    }).await;
+                    let _ = tx
+                        .send(StreamChunk {
+                            delta: content.clone(),
+                            finished: false,
+                            tokens_used: None,
+                        })
+                        .await;
                 }
             }
         }
 
-        let _ = tx.send(StreamChunk {
-            delta: String::new(),
-            finished: true,
-            tokens_used: Some(0),
-        }).await;
+        let _ = tx
+            .send(StreamChunk {
+                delta: String::new(),
+                finished: true,
+                tokens_used: Some(0),
+            })
+            .await;
 
         Ok(LlmResponse {
             content: full_content,

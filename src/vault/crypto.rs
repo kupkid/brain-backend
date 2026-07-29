@@ -1,10 +1,7 @@
-use aes_gcm::{
-    aead::Aead,
-    Aes256Gcm, KeyInit, Nonce,
-};
+use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::Aead};
 use argon2::Argon2;
 use rand::RngCore;
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use thiserror::Error;
 use zeroize::Zeroize;
@@ -42,15 +39,15 @@ const MAX_PARALLELISM: u32 = 16;
 /// Argon2id parameters for master key derivation
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Argon2Params {
-    pub memory_cost: u32,    // in KiB (65536 = 64 MB)
-    pub time_cost: u32,      // iterations
-    pub parallelism: u32,    // threads
+    pub memory_cost: u32, // in KiB (65536 = 64 MB)
+    pub time_cost: u32,   // iterations
+    pub parallelism: u32, // threads
 }
 
 impl Default for Argon2Params {
     fn default() -> Self {
         Self {
-            memory_cost: 65536,  // 64 MB
+            memory_cost: 65536, // 64 MB
             time_cost: 3,
             parallelism: 4,
         }
@@ -91,7 +88,7 @@ impl Argon2Params {
     #[cfg(test)]
     pub fn test_fast() -> Self {
         Self {
-            memory_cost: 1024,  // 1 MiB
+            memory_cost: 1024, // 1 MiB
             time_cost: 1,
             parallelism: 1,
         }
@@ -210,9 +207,12 @@ impl VaultCrypto {
     }
 
     /// Encrypt DEK with master key → (encrypted_dek, nonce)
-    pub fn encrypt_dek(master_key: &[u8; KEY_LEN], dek: &[u8]) -> Result<EncryptedPayload, CryptoError> {
-        let cipher = Aes256Gcm::new_from_slice(master_key)
-            .map_err(|_| CryptoError::EncryptionFailed)?;
+    pub fn encrypt_dek(
+        master_key: &[u8; KEY_LEN],
+        dek: &[u8],
+    ) -> Result<EncryptedPayload, CryptoError> {
+        let cipher =
+            Aes256Gcm::new_from_slice(master_key).map_err(|_| CryptoError::EncryptionFailed)?;
         let nonce_bytes = Self::generate_nonce();
         let nonce = Nonce::from_slice(&nonce_bytes);
         let ciphertext = cipher
@@ -225,9 +225,13 @@ impl VaultCrypto {
     }
 
     /// Decrypt DEK with master key. Fails on wrong key or tampered data.
-    pub fn decrypt_dek(master_key: &[u8; KEY_LEN], encrypted_dek: &[u8], nonce: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        let cipher = Aes256Gcm::new_from_slice(master_key)
-            .map_err(|_| CryptoError::DecryptionFailed)?;
+    pub fn decrypt_dek(
+        master_key: &[u8; KEY_LEN],
+        encrypted_dek: &[u8],
+        nonce: &[u8],
+    ) -> Result<Vec<u8>, CryptoError> {
+        let cipher =
+            Aes256Gcm::new_from_slice(master_key).map_err(|_| CryptoError::DecryptionFailed)?;
         let nonce = Nonce::from_slice(nonce);
         cipher
             .decrypt(nonce, encrypted_dek)
@@ -236,8 +240,7 @@ impl VaultCrypto {
 
     /// Encrypt value with DEK
     pub fn encrypt_value(dek: &[u8], plaintext: &[u8]) -> Result<EncryptedPayload, CryptoError> {
-        let cipher = Aes256Gcm::new_from_slice(dek)
-            .map_err(|_| CryptoError::EncryptionFailed)?;
+        let cipher = Aes256Gcm::new_from_slice(dek).map_err(|_| CryptoError::EncryptionFailed)?;
         let nonce_bytes = Self::generate_nonce();
         let nonce = Nonce::from_slice(&nonce_bytes);
         let ciphertext = cipher
@@ -250,9 +253,12 @@ impl VaultCrypto {
     }
 
     /// Decrypt value with DEK. Fails on wrong key or tampered data.
-    pub fn decrypt_value(dek: &[u8], ciphertext: &[u8], nonce: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        let cipher = Aes256Gcm::new_from_slice(dek)
-            .map_err(|_| CryptoError::DecryptionFailed)?;
+    pub fn decrypt_value(
+        dek: &[u8],
+        ciphertext: &[u8],
+        nonce: &[u8],
+    ) -> Result<Vec<u8>, CryptoError> {
+        let cipher = Aes256Gcm::new_from_slice(dek).map_err(|_| CryptoError::DecryptionFailed)?;
         let nonce = Nonce::from_slice(nonce);
         cipher
             .decrypt(nonce, ciphertext)
@@ -293,7 +299,8 @@ mod tests {
         let params = Argon2Params::test_fast();
 
         let material = VaultCrypto::derive_master_key(passphrase, &salt, &params).unwrap();
-        let key = VaultCrypto::verify_passphrase(passphrase, &salt, &params, &material.key_hash).unwrap();
+        let key =
+            VaultCrypto::verify_passphrase(passphrase, &salt, &params, &material.key_hash).unwrap();
         assert_eq!(key, material.key);
     }
 
@@ -305,7 +312,10 @@ mod tests {
         let material = VaultCrypto::derive_master_key(b"correct", &salt, &params).unwrap();
         let result = VaultCrypto::verify_passphrase(b"wrong", &salt, &params, &material.key_hash);
         assert!(result.is_err());
-        assert!(matches!(result, Err(CryptoError::PassphraseVerificationFailed)));
+        assert!(matches!(
+            result,
+            Err(CryptoError::PassphraseVerificationFailed)
+        ));
     }
 
     #[test]
@@ -314,7 +324,8 @@ mod tests {
         let plaintext = b"super secret api key: sk-abc123";
 
         let enc_value = VaultCrypto::encrypt_value(&dek, plaintext).unwrap();
-        let dec_value = VaultCrypto::decrypt_value(&dek, &enc_value.ciphertext, &enc_value.nonce).unwrap();
+        let dec_value =
+            VaultCrypto::decrypt_value(&dek, &enc_value.ciphertext, &enc_value.nonce).unwrap();
         assert_eq!(dec_value, plaintext);
     }
 
@@ -326,13 +337,17 @@ mod tests {
         let plaintext = b"rotate me";
 
         let enc_dek = VaultCrypto::encrypt_dek(&old_key, &dek).unwrap();
-        let dec_dek = VaultCrypto::decrypt_dek(&old_key, &enc_dek.ciphertext, &enc_dek.nonce).unwrap();
+        let dec_dek =
+            VaultCrypto::decrypt_dek(&old_key, &enc_dek.ciphertext, &enc_dek.nonce).unwrap();
         let re_enc_dek = VaultCrypto::encrypt_dek(&new_key, &dec_dek).unwrap();
-        let final_dek = VaultCrypto::decrypt_dek(&new_key, &re_enc_dek.ciphertext, &re_enc_dek.nonce).unwrap();
+        let final_dek =
+            VaultCrypto::decrypt_dek(&new_key, &re_enc_dek.ciphertext, &re_enc_dek.nonce).unwrap();
         assert_eq!(final_dek, dek);
 
         let enc_value = VaultCrypto::encrypt_value(&dek, plaintext).unwrap();
-        let dec_value = VaultCrypto::decrypt_value(&final_dek, &enc_value.ciphertext, &enc_value.nonce).unwrap();
+        let dec_value =
+            VaultCrypto::decrypt_value(&final_dek, &enc_value.ciphertext, &enc_value.nonce)
+                .unwrap();
         assert_eq!(dec_value, plaintext);
     }
 
@@ -377,7 +392,11 @@ mod tests {
 
     #[test]
     fn kdf_params_out_of_range_rejected() {
-        let params = Argon2Params { memory_cost: 999_999_999, time_cost: 1, parallelism: 1 };
+        let params = Argon2Params {
+            memory_cost: 999_999_999,
+            time_cost: 1,
+            parallelism: 1,
+        };
         let result = VaultCrypto::derive_master_key(b"pass", &[0u8; 16], &params);
         assert!(result.is_err());
         assert!(matches!(result, Err(CryptoError::KdfParamsOutOfRange)));
@@ -413,14 +432,54 @@ mod tests {
         assert!(Argon2Params::test_fast().validate().is_ok());
 
         // Zero memory
-        assert!(Argon2Params { memory_cost: 0, time_cost: 3, parallelism: 4 }.validate().is_err());
+        assert!(
+            Argon2Params {
+                memory_cost: 0,
+                time_cost: 3,
+                parallelism: 4
+            }
+            .validate()
+            .is_err()
+        );
         // Too much memory
-        assert!(Argon2Params { memory_cost: 999_999, time_cost: 3, parallelism: 4 }.validate().is_err());
+        assert!(
+            Argon2Params {
+                memory_cost: 999_999,
+                time_cost: 3,
+                parallelism: 4
+            }
+            .validate()
+            .is_err()
+        );
         // Zero iterations
-        assert!(Argon2Params { memory_cost: 65536, time_cost: 0, parallelism: 4 }.validate().is_err());
+        assert!(
+            Argon2Params {
+                memory_cost: 65536,
+                time_cost: 0,
+                parallelism: 4
+            }
+            .validate()
+            .is_err()
+        );
         // Zero parallelism
-        assert!(Argon2Params { memory_cost: 65536, time_cost: 3, parallelism: 0 }.validate().is_err());
+        assert!(
+            Argon2Params {
+                memory_cost: 65536,
+                time_cost: 3,
+                parallelism: 0
+            }
+            .validate()
+            .is_err()
+        );
         // Memory < 8 * parallelism
-        assert!(Argon2Params { memory_cost: 8, time_cost: 3, parallelism: 2 }.validate().is_err());
+        assert!(
+            Argon2Params {
+                memory_cost: 8,
+                time_cost: 3,
+                parallelism: 2
+            }
+            .validate()
+            .is_err()
+        );
     }
 }

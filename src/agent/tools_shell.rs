@@ -1,5 +1,5 @@
+use crate::agent::tool_trait::{Tool, ToolImportance, ToolOutput};
 use std::process::Command;
-use crate::agent::tool_trait::{Tool, ToolOutput, ToolImportance};
 
 pub struct ShellExec {
     workspace_dir: std::path::PathBuf,
@@ -11,18 +11,29 @@ pub struct ShellExec {
 impl ShellExec {
     pub fn new(workspace_dir: std::path::PathBuf, timeout_secs: u64) -> Self {
         let rtk_available = which_rtk();
-        Self { workspace_dir, timeout_secs, rtk_available }
+        Self {
+            workspace_dir,
+            timeout_secs,
+            rtk_available,
+        }
     }
 
     const DENY_LIST: &'static [&'static str] = &[
-        "rm -rf /", "rm -rf /*", "mkfs", "dd if=", ":(){ :|:&",
-        "> /dev/sda", "chmod -R 777 /",
+        "rm -rf /",
+        "rm -rf /*",
+        "mkfs",
+        "dd if=",
+        ":(){ :|:&",
+        "> /dev/sda",
+        "chmod -R 777 /",
     ];
 
     /// Auto-rewrite command to use rtk for known commands.
     /// Transparent: agent writes `ls`, we run `rtk ls`.
     fn rewrite_with_rtk(&self, cmd: &str) -> String {
-        if !self.rtk_available { return cmd.to_string(); }
+        if !self.rtk_available {
+            return cmd.to_string();
+        }
 
         let trimmed = cmd.trim();
 
@@ -33,9 +44,8 @@ impl ShellExec {
 
         // Prefix matches: rewrite first word if it's a known command
         let known_prefixes = [
-            "ls ", "cat ", "head ", "tail ", "grep ", "rg ", "find ", "tree ",
-            "git ", "cargo ", "npm ", "pytest ", "go ",
-            "docker ", "kubectl ",
+            "ls ", "cat ", "head ", "tail ", "grep ", "rg ", "find ", "tree ", "git ", "cargo ",
+            "npm ", "pytest ", "go ", "docker ", "kubectl ",
         ];
 
         for prefix in &known_prefixes {
@@ -67,7 +77,9 @@ fn which_rtk() -> bool {
 }
 
 impl Tool for ShellExec {
-    fn name(&self) -> &str { "shell_exec" }
+    fn name(&self) -> &str {
+        "shell_exec"
+    }
     fn description(&self) -> &str {
         "Execute a shell command in the project workspace. Returns stdout, stderr, exit code. Automatically uses rtk for compact output on common commands (ls, cat, grep, git, cargo, etc)."
     }
@@ -108,8 +120,14 @@ impl Tool for ShellExec {
             result.push_str(&stdout);
         }
         if !stderr.is_empty() {
-            if !result.is_empty() { result.push_str("\n--- stderr ---\n"); }
-            let s = if stderr.len() > 500 { &stderr[..500] } else { &stderr };
+            if !result.is_empty() {
+                result.push_str("\n--- stderr ---\n");
+            }
+            let s = if stderr.len() > 500 {
+                &stderr[..500]
+            } else {
+                &stderr
+            };
             result.push_str(s);
         }
         if result.is_empty() {

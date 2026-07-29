@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use tracing::info;
 
 use crate::db::ids;
@@ -60,7 +60,10 @@ impl<'a> ToolRepository<'a> {
             params![uuid, new.run_id, new.event_id, new.tool_name, new.arguments_json],
         )?;
         let id = self.conn.last_insert_rowid();
-        info!("tool started: id={}, tool={}, run={}", id, new.tool_name, new.run_id);
+        info!(
+            "tool started: id={}, tool={}, run={}",
+            id, new.tool_name, new.run_id
+        );
         Ok(id)
     }
 
@@ -130,7 +133,7 @@ impl<'a> ToolRepository<'a> {
                     result_summary, result_full, status, started_at,
                     completed_at, duration_ms, tokens_used, cost_cents,
                     retry_count, error_message
-             FROM tool_invocations WHERE run_id = ?1 ORDER BY started_at"
+             FROM tool_invocations WHERE run_id = ?1 ORDER BY started_at",
         )?;
         let tools = stmt
             .query_map(params![run_id], |r| {
@@ -159,11 +162,13 @@ impl<'a> ToolRepository<'a> {
 
     /// Count pending (running) tools for a run
     pub fn count_pending(&self, run_id: i64) -> anyhow::Result<i64> {
-        self.conn.query_row(
-            "SELECT COUNT(*) FROM tool_invocations WHERE run_id = ?1 AND status = 'running'",
-            params![run_id],
-            |r| r.get(0),
-        ).map_err(Into::into)
+        self.conn
+            .query_row(
+                "SELECT COUNT(*) FROM tool_invocations WHERE run_id = ?1 AND status = 'running'",
+                params![run_id],
+                |r| r.get(0),
+            )
+            .map_err(Into::into)
     }
 
     /// Get aggregated stats for a run
@@ -211,7 +216,8 @@ mod tests {
     fn setup_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-        conn.execute_batch(include_str!("../../migrations/001_init.sql")).unwrap();
+        conn.execute_batch(include_str!("../../migrations/001_init.sql"))
+            .unwrap();
         conn
     }
 
@@ -220,12 +226,14 @@ mod tests {
         conn.execute(
             "INSERT INTO runs (uuid, agent_name, goal) VALUES (?1, 'test', 'test goal')",
             params![uuid],
-        ).unwrap();
+        )
+        .unwrap();
         let run_id = conn.last_insert_rowid();
         conn.execute(
             "INSERT INTO run_seq_counters (run_id, next_seq) VALUES (?1, 1)",
             params![run_id],
-        ).unwrap();
+        )
+        .unwrap();
         run_id
     }
 
@@ -279,15 +287,19 @@ mod tests {
         let tool_id = repo.start(&new).unwrap();
         assert_eq!(repo.count_pending(run_id).unwrap(), 1);
 
-        repo.complete(tool_id, &ToolResult {
-            result_summary: None,
-            result_full: None,
-            status: "success".to_string(),
-            duration_ms: None,
-            tokens_used: 0,
-            cost_cents: 0,
-            error_message: None,
-        }).unwrap();
+        repo.complete(
+            tool_id,
+            &ToolResult {
+                result_summary: None,
+                result_full: None,
+                status: "success".to_string(),
+                duration_ms: None,
+                tokens_used: 0,
+                cost_cents: 0,
+                error_message: None,
+            },
+        )
+        .unwrap();
         assert_eq!(repo.count_pending(run_id).unwrap(), 0);
     }
 
@@ -305,15 +317,27 @@ mod tests {
                 arguments_json: "{}".to_string(),
             };
             let tool_id = repo.start(&new).unwrap();
-            repo.complete(tool_id, &ToolResult {
-                result_summary: None,
-                result_full: None,
-                status: if i == 2 { "error".to_string() } else { "success".to_string() },
-                duration_ms: Some(100 * (i + 1)),
-                tokens_used: 10 * i,
-                cost_cents: i,
-                error_message: if i == 2 { Some("timeout".to_string()) } else { None },
-            }).unwrap();
+            repo.complete(
+                tool_id,
+                &ToolResult {
+                    result_summary: None,
+                    result_full: None,
+                    status: if i == 2 {
+                        "error".to_string()
+                    } else {
+                        "success".to_string()
+                    },
+                    duration_ms: Some(100 * (i + 1)),
+                    tokens_used: 10 * i,
+                    cost_cents: i,
+                    error_message: if i == 2 {
+                        Some("timeout".to_string())
+                    } else {
+                        None
+                    },
+                },
+            )
+            .unwrap();
         }
 
         let stats = repo.stats(run_id).unwrap();

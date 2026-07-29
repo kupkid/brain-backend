@@ -97,11 +97,13 @@ pub trait LlmProvider: Send + Sync {
         tx: tokio::sync::mpsc::Sender<StreamChunk>,
     ) -> Result<LlmResponse, LlmError> {
         let response = self.complete(messages, max_tokens, temperature).await?;
-        let _ = tx.send(StreamChunk {
-            delta: response.content.clone(),
-            finished: true,
-            tokens_used: Some(response.tokens_used),
-        }).await;
+        let _ = tx
+            .send(StreamChunk {
+                delta: response.content.clone(),
+                finished: true,
+                tokens_used: Some(response.tokens_used),
+            })
+            .await;
         Ok(response)
     }
 

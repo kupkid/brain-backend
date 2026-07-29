@@ -1,9 +1,11 @@
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use crate::vault::VaultRepository;
 use crate::vault::crypto::VaultCrypto;
+
+type EncryptedApiKey = (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Provider {
@@ -112,17 +114,24 @@ impl<'a> ProvidersRepository<'a> {
         }
     }
 
-    pub fn create(&self, master_key: &[u8; 32], req: &CreateProviderRequest) -> anyhow::Result<i64> {
+    pub fn create(
+        &self,
+        master_key: &[u8; 32],
+        req: &CreateProviderRequest,
+    ) -> anyhow::Result<i64> {
         let uuid = crate::db::ids::new_uuid_blob();
         let vault = VaultRepository::new(self.conn);
-        let key_version = vault.get_active_master_key_version()?
+        let key_version = vault
+            .get_active_master_key_version()?
             .ok_or_else(|| anyhow::anyhow!("no active vault key"))?;
 
-        let (enc_dek, dek_nonce, ciphertext, ct_nonce) = self.encrypt_api_key(master_key, &req.api_key, key_version)?;
+        let (enc_dek, dek_nonce, ciphertext, ct_nonce) =
+            self.encrypt_api_key(master_key, &req.api_key, key_version)?;
 
         // If setting as default, unset other defaults first
         if req.is_default.unwrap_or(false) {
-            self.conn.execute("UPDATE providers SET is_default = 0", [])?;
+            self.conn
+                .execute("UPDATE providers SET is_default = 0", [])?;
         }
 
         self.conn.execute(
@@ -140,14 +149,20 @@ impl<'a> ProvidersRepository<'a> {
         Ok(id)
     }
 
-    pub fn update(&self, master_key: &[u8; 32], id: i64, req: &UpdateProviderRequest) -> anyhow::Result<bool> {
+    pub fn update(
+        &self,
+        master_key: &[u8; 32],
+        id: i64,
+        req: &UpdateProviderRequest,
+    ) -> anyhow::Result<bool> {
         let existing = self.get(id)?;
         if existing.is_none() {
             return Ok(false);
         }
 
         let vault = VaultRepository::new(self.conn);
-        let key_version = vault.get_active_master_key_version()?
+        let key_version = vault
+            .get_active_master_key_version()?
             .ok_or_else(|| anyhow::anyhow!("no active vault key"))?;
 
         // Handle API key update
@@ -158,7 +173,8 @@ impl<'a> ProvidersRepository<'a> {
         };
 
         if req.is_default.unwrap_or(false) {
-            self.conn.execute("UPDATE providers SET is_default = 0", [])?;
+            self.conn
+                .execute("UPDATE providers SET is_default = 0", [])?;
         }
 
         let mut sets = Vec::new();
@@ -204,7 +220,7 @@ impl<'a> ProvidersRepository<'a> {
             return Ok(true);
         }
 
-        sets.push(format!("updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"));
+        sets.push("updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')".to_string());
         let sql = format!("UPDATE providers SET {} WHERE id = ?{idx}", sets.join(", "));
         p.push(Box::new(id));
 
@@ -214,7 +230,9 @@ impl<'a> ProvidersRepository<'a> {
     }
 
     pub fn delete(&self, id: i64) -> anyhow::Result<bool> {
-        let affected = self.conn.execute("DELETE FROM providers WHERE id = ?1", params![id])?;
+        let affected = self
+            .conn
+            .execute("DELETE FROM providers WHERE id = ?1", params![id])?;
         Ok(affected > 0)
     }
 
@@ -326,20 +344,34 @@ impl<'a> ProvidersRepository<'a> {
     }
 
     pub fn delete_models(&self, provider_id: i64) -> anyhow::Result<usize> {
-        let affected = self.conn.execute("DELETE FROM provider_models WHERE provider_id = ?1", params![provider_id])?;
+        let affected = self.conn.execute(
+            "DELETE FROM provider_models WHERE provider_id = ?1",
+            params![provider_id],
+        )?;
         Ok(affected)
     }
 
-    fn encrypt_api_key(&self, master_key: &[u8; 32], api_key: &Option<String>, key_version: i64) -> anyhow::Result<(Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>)> {
+    /// (enc_dek, dek_nonce, ciphertext, ct_nonce)
+    fn encrypt_api_key(
+        &self,
+        master_key: &[u8; 32],
+        api_key: &Option<String>,
+        key_version: i64,
+    ) -> anyhow::Result<EncryptedApiKey> {
         match api_key {
             Some(key) if !key.is_empty() => {
                 let dek = VaultCrypto::generate_dek();
                 let enc_dek = VaultCrypto::encrypt_dek(master_key, &dek)?;
                 let enc_val = VaultCrypto::encrypt_value(&dek, key.as_bytes())?;
                 let _ = key_version; // used in parent for the FK
-                Ok((enc_dek.ciphertext, enc_dek.nonce, enc_val.ciphertext, enc_val.nonce))
+                Ok((
+                    enc_dek.ciphertext,
+                    enc_dek.nonce,
+                    enc_val.ciphertext,
+                    enc_val.nonce,
+                ))
             }
-            _ => Ok((Vec::new(), Vec::new(), Vec::new(), Vec::new()))
+            _ => Ok((Vec::new(), Vec::new(), Vec::new(), Vec::new())),
         }
     }
 }

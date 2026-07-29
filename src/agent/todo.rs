@@ -1,7 +1,7 @@
-use std::sync::{Arc, Mutex};
-use rusqlite::{Connection, OptionalExtension};
-use tracing::info;
 use crate::db::ids;
+use rusqlite::{Connection, OptionalExtension};
+use std::sync::{Arc, Mutex};
+use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct TodoItem {
@@ -39,11 +39,18 @@ impl TodoRepository {
                 "SELECT id, run_id, task_id, title, description, status, created_at, updated_at
                  FROM agent_todos WHERE id = ?1",
                 rusqlite::params![id],
-                |r| Ok(TodoItem {
-                    id: r.get(0)?, run_id: r.get(1)?, task_id: r.get(2)?,
-                    title: r.get(3)?, description: r.get(4)?, status: r.get(5)?,
-                    created_at: r.get(6)?, updated_at: r.get(7)?,
-                }),
+                |r| {
+                    Ok(TodoItem {
+                        id: r.get(0)?,
+                        run_id: r.get(1)?,
+                        task_id: r.get(2)?,
+                        title: r.get(3)?,
+                        description: r.get(4)?,
+                        status: r.get(5)?,
+                        created_at: r.get(6)?,
+                        updated_at: r.get(7)?,
+                    })
+                },
             )?;
             items.push(item);
         }
@@ -51,7 +58,12 @@ impl TodoRepository {
         Ok(items)
     }
 
-    pub fn update_status(&self, run_id: i64, task_id: &str, status: &str) -> anyhow::Result<Option<TodoItem>> {
+    pub fn update_status(
+        &self,
+        run_id: i64,
+        task_id: &str,
+        status: &str,
+    ) -> anyhow::Result<Option<TodoItem>> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "UPDATE agent_todos SET status = ?1 WHERE run_id = ?2 AND task_id = ?3",
@@ -61,11 +73,18 @@ impl TodoRepository {
             "SELECT id, run_id, task_id, title, description, status, created_at, updated_at
              FROM agent_todos WHERE run_id = ?1 AND task_id = ?2",
             rusqlite::params![run_id, task_id],
-            |r| Ok(TodoItem {
-                id: r.get(0)?, run_id: r.get(1)?, task_id: r.get(2)?,
-                title: r.get(3)?, description: r.get(4)?, status: r.get(5)?,
-                created_at: r.get(6)?, updated_at: r.get(7)?,
-            }),
+            |r| {
+                Ok(TodoItem {
+                    id: r.get(0)?,
+                    run_id: r.get(1)?,
+                    task_id: r.get(2)?,
+                    title: r.get(3)?,
+                    description: r.get(4)?,
+                    status: r.get(5)?,
+                    created_at: r.get(6)?,
+                    updated_at: r.get(7)?,
+                })
+            },
         );
         Ok(item.optional()?)
     }
@@ -74,15 +93,22 @@ impl TodoRepository {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, run_id, task_id, title, description, status, created_at, updated_at
-             FROM agent_todos WHERE run_id = ?1 ORDER BY created_at"
+             FROM agent_todos WHERE run_id = ?1 ORDER BY created_at",
         )?;
-        let items = stmt.query_map(rusqlite::params![run_id], |r| {
-            Ok(TodoItem {
-                id: r.get(0)?, run_id: r.get(1)?, task_id: r.get(2)?,
-                title: r.get(3)?, description: r.get(4)?, status: r.get(5)?,
-                created_at: r.get(6)?, updated_at: r.get(7)?,
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let items = stmt
+            .query_map(rusqlite::params![run_id], |r| {
+                Ok(TodoItem {
+                    id: r.get(0)?,
+                    run_id: r.get(1)?,
+                    task_id: r.get(2)?,
+                    title: r.get(3)?,
+                    description: r.get(4)?,
+                    status: r.get(5)?,
+                    created_at: r.get(6)?,
+                    updated_at: r.get(7)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(items)
     }
 }

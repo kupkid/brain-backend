@@ -4,22 +4,24 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use brain_backend::config::AppConfig;
-use brain_backend::api::AppState;
 use brain_backend::agent::EventBus;
+use brain_backend::api::AppState;
+use brain_backend::config::AppConfig;
 use brain_backend::db;
-use brain_backend::vault;
-use brain_backend::provider::cohere_llm::CohereLlm;
-use brain_backend::provider::openai_compat::OpenAiCompatLlm;
 use brain_backend::provider::cohere_embedding::CohereEmbedding;
+use brain_backend::provider::cohere_llm::CohereLlm;
 use brain_backend::provider::embedding::EmbeddingProvider;
 use brain_backend::provider::llm::LlmProvider;
+use brain_backend::provider::openai_compat::OpenAiCompatLlm;
+use brain_backend::vault;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "brain_backend=info,tower_http=info".into()))
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "brain_backend=info,tower_http=info".into()),
+        )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
@@ -47,11 +49,10 @@ async fn main() -> Result<()> {
 
     db::ensure_vec_table(&conn, config.embedding_provider.dimensions as i32)?;
 
-    let collection_count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM embedding_collections",
-        [],
-        |r| r.get(0),
-    )?;
+    let collection_count: i64 =
+        conn.query_row("SELECT COUNT(*) FROM embedding_collections", [], |r| {
+            r.get(0)
+        })?;
     if collection_count == 0 {
         use brain_backend::db::ids;
         let uuid = ids::new_uuid_blob();
@@ -83,7 +84,8 @@ async fn main() -> Result<()> {
             let base_url = std::env::var("LLM_BASE_URL").expect("LLM_BASE_URL required");
             tracing::info!("WS agent LLM: OpenAI-compatible ({model}, {base_url})");
             Box::new(move |tools| {
-                let provider = OpenAiCompatLlm::new(api_key.clone(), model.clone(), base_url.clone());
+                let provider =
+                    OpenAiCompatLlm::new(api_key.clone(), model.clone(), base_url.clone());
                 Arc::new(provider.with_tools(tools)) as Arc<dyn LlmProvider>
             })
         }

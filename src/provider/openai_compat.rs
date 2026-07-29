@@ -3,7 +3,9 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use super::llm::{LlmError, LlmMessage, LlmProvider, LlmResponse, LlmToolCall, LlmToolResult, StructuredOutput};
+use super::llm::{
+    LlmError, LlmMessage, LlmProvider, LlmResponse, LlmToolCall, LlmToolResult, StructuredOutput,
+};
 
 pub struct OpenAiCompatLlm {
     client: Client,
@@ -138,10 +140,17 @@ impl OpenAiCompatLlm {
         let response = self.send_request(request).await?;
         let usage = response.usage.and_then(|u| u.total_tokens).unwrap_or(0);
 
-        let choice = response.choices.first().ok_or_else(|| LlmError::Provider("no choices".to_string()))?;
+        let choice = response
+            .choices
+            .first()
+            .ok_or_else(|| LlmError::Provider("no choices".to_string()))?;
         let content = choice.message.content.clone().unwrap_or_default();
 
-        let tool_calls: Vec<LlmToolCall> = choice.message.tool_calls.clone().unwrap_or_default()
+        let tool_calls: Vec<LlmToolCall> = choice
+            .message
+            .tool_calls
+            .clone()
+            .unwrap_or_default()
             .into_iter()
             .filter_map(|tc| {
                 let args: serde_json::Value = serde_json::from_str(&tc.function.arguments).ok()?;
@@ -153,9 +162,18 @@ impl OpenAiCompatLlm {
             })
             .collect();
 
-        info!("LLM complete: model={}, tokens={}, tool_calls={}", self.model, usage, tool_calls.len());
+        info!(
+            "LLM complete: model={}, tokens={}, tool_calls={}",
+            self.model,
+            usage,
+            tool_calls.len()
+        );
 
-        Ok(LlmToolResult { content, tool_calls, tokens_used: usage })
+        Ok(LlmToolResult {
+            content,
+            tool_calls,
+            tokens_used: usage,
+        })
     }
 }
 
@@ -167,7 +185,9 @@ impl LlmProvider for OpenAiCompatLlm {
         max_tokens: Option<usize>,
         temperature: Option<f32>,
     ) -> Result<LlmResponse, LlmError> {
-        let result = self.complete_with_tools_raw(messages, max_tokens, temperature).await?;
+        let result = self
+            .complete_with_tools_raw(messages, max_tokens, temperature)
+            .await?;
         Ok(LlmResponse {
             content: result.content,
             tokens_used: result.tokens_used,
@@ -181,7 +201,8 @@ impl LlmProvider for OpenAiCompatLlm {
         max_tokens: Option<usize>,
         temperature: Option<f32>,
     ) -> Result<LlmToolResult, LlmError> {
-        self.complete_with_tools_raw(messages, max_tokens, temperature).await
+        self.complete_with_tools_raw(messages, max_tokens, temperature)
+            .await
     }
 
     async fn structured_complete(

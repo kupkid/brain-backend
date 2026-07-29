@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use tracing::info;
 
 #[derive(Debug, Clone)]
@@ -64,7 +64,7 @@ impl<'a> RunContextRepository<'a> {
     pub fn list_by_run(&self, run_id: i64) -> anyhow::Result<Vec<RunContext>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, run_id, slot, content, updated_at
-             FROM run_contexts WHERE run_id = ?1 ORDER BY slot"
+             FROM run_contexts WHERE run_id = ?1 ORDER BY slot",
         )?;
         let contexts = stmt
             .query_map(params![run_id], |r| {
@@ -81,7 +81,10 @@ impl<'a> RunContextRepository<'a> {
     }
 
     /// Get all context slots as key-value pairs (for prompt assembly)
-    pub fn slots_map(&self, run_id: i64) -> anyhow::Result<std::collections::HashMap<String, String>> {
+    pub fn slots_map(
+        &self,
+        run_id: i64,
+    ) -> anyhow::Result<std::collections::HashMap<String, String>> {
         let contexts = self.list_by_run(run_id)?;
         let map = contexts.into_iter().map(|c| (c.slot, c.content)).collect();
         Ok(map)
@@ -131,7 +134,8 @@ mod tests {
     fn setup_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-        conn.execute_batch(include_str!("../../migrations/001_init.sql")).unwrap();
+        conn.execute_batch(include_str!("../../migrations/001_init.sql"))
+            .unwrap();
         conn
     }
 
@@ -140,7 +144,8 @@ mod tests {
         conn.execute(
             "INSERT INTO runs (uuid, agent_name, goal) VALUES (?1, 'test', 'goal')",
             params![uuid],
-        ).unwrap();
+        )
+        .unwrap();
         conn.last_insert_rowid()
     }
 
@@ -150,12 +155,14 @@ mod tests {
         let run_id = create_test_run(&conn);
         let repo = RunContextRepository::new(&conn);
 
-        repo.upsert(run_id, "system_prompt", "You are helpful.").unwrap();
+        repo.upsert(run_id, "system_prompt", "You are helpful.")
+            .unwrap();
         let ctx = repo.get(run_id, "system_prompt").unwrap().unwrap();
         assert_eq!(ctx.content, "You are helpful.");
 
         // Upsert overwrites
-        repo.upsert(run_id, "system_prompt", "Updated prompt.").unwrap();
+        repo.upsert(run_id, "system_prompt", "Updated prompt.")
+            .unwrap();
         let ctx = repo.get(run_id, "system_prompt").unwrap().unwrap();
         assert_eq!(ctx.content, "Updated prompt.");
     }
@@ -188,8 +195,14 @@ mod tests {
         let repo = RunContextRepository::new(&conn);
 
         let slots = vec![
-            ContextSlot { slot: "a".to_string(), content: "1".to_string() },
-            ContextSlot { slot: "b".to_string(), content: "2".to_string() },
+            ContextSlot {
+                slot: "a".to_string(),
+                content: "1".to_string(),
+            },
+            ContextSlot {
+                slot: "b".to_string(),
+                content: "2".to_string(),
+            },
         ];
         repo.upsert_batch(run_id, &slots).unwrap();
 

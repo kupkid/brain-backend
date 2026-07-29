@@ -1,17 +1,23 @@
-use crate::agent::tool_trait::{Tool, ToolOutput, ToolImportance};
+use crate::agent::tool_trait::{Tool, ToolImportance, ToolOutput};
 
 pub struct BrowserNavigate;
 
 impl Default for BrowserNavigate {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BrowserNavigate {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 impl Tool for BrowserNavigate {
-    fn name(&self) -> &str { "browser_navigate" }
+    fn name(&self) -> &str {
+        "browser_navigate"
+    }
     fn description(&self) -> &str {
         "Fetch a web page and return its text content. Stub: uses HTTP, future: Lightpanda."
     }
@@ -31,9 +37,16 @@ impl Tool for BrowserNavigate {
             .danger_accept_invalid_certs(true)
             .build()
             .map_err(|e| format!("client error: {e}"))?;
-        let response = client.get(url).send().map_err(|e| format!("request error: {e}"))?;
+        let response = client
+            .get(url)
+            .send()
+            .map_err(|e| format!("request error: {e}"))?;
         let body = response.text().map_err(|e| format!("body error: {e}"))?;
-        let text = if body.len() > 8000 { &body[..8000] } else { &body };
+        let text = if body.len() > 8000 {
+            &body[..8000]
+        } else {
+            &body
+        };
         Ok(ToolOutput::text(text, ToolImportance::Normal))
     }
 }

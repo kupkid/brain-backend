@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 use super::repository::{MemoryRepository, StoredMemory};
 
@@ -35,7 +35,13 @@ impl<'a> MemoryRetriever<'a> {
                 params![collection_id],
                 |r| r.get(0),
             )?;
-            self.vec_search(query_embedding, dimensions, project_id, collection_id, limit * 2)?
+            self.vec_search(
+                query_embedding,
+                dimensions,
+                project_id,
+                collection_id,
+                limit * 2,
+            )?
         } else {
             vec![]
         };
@@ -65,40 +71,45 @@ impl<'a> MemoryRetriever<'a> {
         project_id: Option<i64>,
         limit: usize,
     ) -> anyhow::Result<Vec<(i64, f64)>> {
-        let (sql, param_values): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(pid) = project_id {
-            (
-                "SELECT m.id, fts.rank
+        let (sql, param_values): (String, Vec<Box<dyn rusqlite::types::ToSql>>) =
+            if let Some(pid) = project_id {
+                (
+                    "SELECT m.id, fts.rank
                  FROM memories_fts fts
                  JOIN memories m ON m.id = fts.rowid
                  WHERE memories_fts MATCH ?1
                    AND m.lifecycle_status = 'active'
                    AND m.project_id = ?2
                  ORDER BY fts.rank
-                 LIMIT ?3".to_string(),
-                vec![
-                    Box::new(query.to_string()) as Box<dyn rusqlite::types::ToSql>,
-                    Box::new(pid),
-                    Box::new(limit as i64),
-                ],
-            )
-        } else {
-            (
-                "SELECT m.id, fts.rank
+                 LIMIT ?3"
+                        .to_string(),
+                    vec![
+                        Box::new(query.to_string()) as Box<dyn rusqlite::types::ToSql>,
+                        Box::new(pid),
+                        Box::new(limit as i64),
+                    ],
+                )
+            } else {
+                (
+                    "SELECT m.id, fts.rank
                  FROM memories_fts fts
                  JOIN memories m ON m.id = fts.rowid
                  WHERE memories_fts MATCH ?1
                    AND m.lifecycle_status = 'active'
                  ORDER BY fts.rank
-                 LIMIT ?2".to_string(),
-                vec![
-                    Box::new(query.to_string()) as Box<dyn rusqlite::types::ToSql>,
-                    Box::new(limit as i64),
-                ],
-            )
-        };
+                 LIMIT ?2"
+                        .to_string(),
+                    vec![
+                        Box::new(query.to_string()) as Box<dyn rusqlite::types::ToSql>,
+                        Box::new(limit as i64),
+                    ],
+                )
+            };
 
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
-        let results = self.conn
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+        let results = self
+            .conn
             .prepare(&sql)?
             .query_map(param_refs.as_slice(), |r| {
                 let id: i64 = r.get(0)?;
@@ -119,11 +130,13 @@ impl<'a> MemoryRetriever<'a> {
         limit: usize,
     ) -> anyhow::Result<Vec<(i64, f64)>> {
         let table_name = format!("vec_mem_{}", dimensions);
-        let query_bytes: Vec<u8> = query_embedding.iter()
+        let query_bytes: Vec<u8> = query_embedding
+            .iter()
             .flat_map(|f| f.to_le_bytes())
             .collect();
 
-        let results = self.conn
+        let results = self
+            .conn
             .prepare(&format!(
                 "SELECT v.vector_id, v.distance
                  FROM {table_name} v
@@ -135,11 +148,14 @@ impl<'a> MemoryRetriever<'a> {
                    AND m.collection_id = ?3
                  ORDER BY v.distance"
             ))?
-            .query_map(rusqlite::params![query_bytes, project_id, collection_id, limit as i64], |r| {
-                let id: i64 = r.get(0)?;
-                let distance: f64 = r.get(1)?;
-                Ok((id, 1.0 / (1.0 + distance)))
-            })?
+            .query_map(
+                rusqlite::params![query_bytes, project_id, collection_id, limit as i64],
+                |r| {
+                    let id: i64 = r.get(0)?;
+                    let distance: f64 = r.get(1)?;
+                    Ok((id, 1.0 / (1.0 + distance)))
+                },
+            )?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(results)

@@ -1,3 +1,3 @@
 pub mod builder;
 
-pub use builder::{ContextBuilder, AssembledContext, ContextSlot as Slot};
+pub use builder::{AssembledContext, ContextBuilder, ContextSlot as Slot};

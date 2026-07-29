@@ -24,12 +24,21 @@ impl WorkspaceBackend for FsWorkspaceBackend {
             .join("workspace")
     }
 
-    fn read_file(&self, project_uuid: &[u8], relative_path: &str) -> Result<Vec<u8>, WorkspaceError> {
+    fn read_file(
+        &self,
+        project_uuid: &[u8],
+        relative_path: &str,
+    ) -> Result<Vec<u8>, WorkspaceError> {
         let full_path = self.validate_path(project_uuid, relative_path)?;
         Ok(std::fs::read(&full_path)?)
     }
 
-    fn write_file(&self, project_uuid: &[u8], relative_path: &str, content: &[u8]) -> Result<(), WorkspaceError> {
+    fn write_file(
+        &self,
+        project_uuid: &[u8],
+        relative_path: &str,
+        content: &[u8],
+    ) -> Result<(), WorkspaceError> {
         let full_path = self.validate_path(project_uuid, relative_path)?;
 
         // Ensure parent directory exists
@@ -41,7 +50,11 @@ impl WorkspaceBackend for FsWorkspaceBackend {
         Ok(())
     }
 
-    fn list_dir(&self, project_uuid: &[u8], relative_path: &str) -> Result<Vec<FileEntry>, WorkspaceError> {
+    fn list_dir(
+        &self,
+        project_uuid: &[u8],
+        relative_path: &str,
+    ) -> Result<Vec<FileEntry>, WorkspaceError> {
         let full_path = if relative_path.is_empty() {
             self.workspace_root(project_uuid)
         } else {
@@ -53,7 +66,8 @@ impl WorkspaceBackend for FsWorkspaceBackend {
             let entry = entry?;
             let metadata = entry.metadata()?;
             let path = entry.path();
-            let relative = path.strip_prefix(self.workspace_root(project_uuid))
+            let relative = path
+                .strip_prefix(self.workspace_root(project_uuid))
                 .unwrap_or(&path)
                 .to_path_buf();
 
@@ -61,12 +75,10 @@ impl WorkspaceBackend for FsWorkspaceBackend {
                 path: relative,
                 is_dir: metadata.is_dir(),
                 size: metadata.len(),
-                modified: metadata.modified()
-                    .ok()
-                    .map(|t| {
-                        let datetime: chrono::DateTime<chrono::Utc> = t.into();
-                        datetime.to_rfc3339()
-                    }),
+                modified: metadata.modified().ok().map(|t| {
+                    let datetime: chrono::DateTime<chrono::Utc> = t.into();
+                    datetime.to_rfc3339()
+                }),
             });
         }
 

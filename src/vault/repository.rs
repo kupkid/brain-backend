@@ -1,10 +1,10 @@
-use rusqlite::{params, Connection, OptionalExtension};
-use std::sync::atomic::{AtomicBool, Ordering};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::info;
 
+use super::crypto::{Argon2Params, CryptoError, MasterKeyMaterial, VaultCrypto};
 use crate::db::ids;
-use super::crypto::{VaultCrypto, Argon2Params, MasterKeyMaterial, CryptoError};
 
 /// Global lock to ensure only one Argon2id operation runs at a time.
 /// Prevents RAM exhaustion from concurrent KDF computations.
@@ -53,7 +53,8 @@ impl<'a> VaultRepository<'a> {
     /// Generates salt, derives key via Argon2id, stores salt/params/hash.
     /// Serialized via ARGON2_LOCK to prevent concurrent KDF operations.
     pub fn init(&self, passphrase: &[u8]) -> Result<MasterKeyMaterial, anyhow::Error> {
-        let _guard = ARGON2_LOCK.lock()
+        let _guard = ARGON2_LOCK
+            .lock()
             .map_err(|_| anyhow::anyhow!("argon2 lock poisoned"))?;
 
         if VAULT_INITIALIZING.swap(true, Ordering::SeqCst) {
@@ -63,13 +64,14 @@ impl<'a> VaultRepository<'a> {
             VAULT_INITIALIZING.store(false, Ordering::SeqCst);
         });
 
-        let count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM vault_master_keys",
-            [],
-            |r| r.get(0),
-        )?;
+        let count: i64 =
+            self.conn
+                .query_row("SELECT COUNT(*) FROM vault_master_keys", [], |r| r.get(0))?;
 
-        anyhow::ensure!(count == 0, "vault already initialized — use unlock() instead");
+        anyhow::ensure!(
+            count == 0,
+            "vault already initialized — use unlock() instead"
+        );
 
         let salt = VaultCrypto::generate_salt();
         let params = Argon2Params::default();
@@ -90,10 +92,12 @@ impl<'a> VaultRepository<'a> {
     /// Reads stored salt/params, derives key, verifies hash.
     /// Serialized via ARGON2_LOCK to prevent concurrent KDF operations.
     pub fn unlock(&self, passphrase: &[u8]) -> Result<MasterKeyMaterial, anyhow::Error> {
-        let _guard = ARGON2_LOCK.lock()
+        let _guard = ARGON2_LOCK
+            .lock()
             .map_err(|_| anyhow::anyhow!("argon2 lock poisoned"))?;
 
-        let record = self.conn
+        let record = self
+            .conn
             .query_row(
                 "SELECT id, salt, params_json, key_hash FROM vault_master_keys
                  WHERE retired_at IS NULL ORDER BY id DESC LIMIT 1",
@@ -118,7 +122,8 @@ impl<'a> VaultRepository<'a> {
             &record.salt,
             &record.params,
             &record.key_hash,
-        ).map_err(|e| match e {
+        )
+        .map_err(|e| match e {
             CryptoError::PassphraseVerificationFailed => {
                 anyhow::anyhow!("invalid passphrase")
             }
@@ -161,7 +166,8 @@ impl<'a> VaultRepository<'a> {
         plaintext: &[u8],
         tags: &[String],
     ) -> anyhow::Result<i64> {
-        let key_version = self.get_active_master_key_version()?
+        let key_version = self
+            .get_active_master_key_version()?
             .ok_or_else(|| anyhow::anyhow!("no active master key"))?;
 
         let dek = VaultCrypto::generate_dek();
@@ -236,7 +242,8 @@ impl<'a> VaultRepository<'a> {
         scope: &str,
         project_id: Option<i64>,
     ) -> anyhow::Result<Option<Vec<u8>>> {
-        let row = self.conn
+        let row = self
+            .conn
             .query_row(
                 "SELECT encrypted_dek, dek_nonce, ciphertext, ciphertext_nonce
                  FROM credentials_vault
@@ -280,10 +287,12 @@ impl<'a> VaultRepository<'a> {
         old_master_key: &[u8; 32],
         new_passphrase: &[u8],
     ) -> anyhow::Result<()> {
-        let _guard = ARGON2_LOCK.lock()
+        let _guard = ARGON2_LOCK
+            .lock()
             .map_err(|_| anyhow::anyhow!("argon2 lock poisoned"))?;
 
-        let old_version = self.get_active_master_key_version()?
+        let old_version = self
+            .get_active_master_key_version()?
             .ok_or_else(|| anyhow::anyhow!("no active master key"))?;
 
         let new_salt = VaultCrypto::generate_salt();
@@ -299,13 +308,18 @@ impl<'a> VaultRepository<'a> {
         tx.execute(
             "INSERT INTO vault_master_keys (id, algorithm, salt, params_json, key_hash)
              VALUES (?1, 'aes-256-gcm', ?2, ?3, ?4)",
-            params![new_version, new_salt, new_params.to_json(), new_material.key_hash],
+            params![
+                new_version,
+                new_salt,
+                new_params.to_json(),
+                new_material.key_hash
+            ],
         )?;
 
         // 2. Re-wrap all DEKs from old key to new key
         let rows: Vec<(i64, Vec<u8>, Vec<u8>)> = {
             let mut stmt = tx.prepare(
-                "SELECT id, encrypted_dek, dek_nonce FROM credentials_vault WHERE key_version = ?1"
+                "SELECT id, encrypted_dek, dek_nonce FROM credentials_vault WHERE key_version = ?1",
             )?;
             stmt.query_map(params![old_version], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?))
@@ -336,7 +350,9 @@ impl<'a> VaultRepository<'a> {
 
         info!(
             "rotated master key: v{} -> v{}, re-wrapped {} credentials",
-            old_version, new_version, rows.len()
+            old_version,
+            new_version,
+            rows.len()
         );
         Ok(())
     }
@@ -351,7 +367,7 @@ impl<'a> VaultRepository<'a> {
             "SELECT id, name, scope, project_id, key_version, tags_json, created_at, updated_at
              FROM credentials_vault
              WHERE scope = ?1 AND project_id IS ?2
-             ORDER BY created_at DESC"
+             ORDER BY created_at DESC",
         )?;
         let rows = stmt
             .query_map(params![scope, project_id], |r| {
@@ -371,7 +387,12 @@ impl<'a> VaultRepository<'a> {
     }
 
     /// Delete a credential
-    pub fn delete_credential(&self, name: &str, scope: &str, project_id: Option<i64>) -> anyhow::Result<bool> {
+    pub fn delete_credential(
+        &self,
+        name: &str,
+        scope: &str,
+        project_id: Option<i64>,
+    ) -> anyhow::Result<bool> {
         let affected = self.conn.execute(
             "DELETE FROM credentials_vault WHERE name = ?1 AND scope = ?2 AND project_id IS ?3",
             params![name, scope, project_id],

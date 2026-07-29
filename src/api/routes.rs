@@ -1,29 +1,29 @@
+use axum::extract::ws::Message;
 use axum::{
+    Json, Router,
     extract::{Path, State, WebSocketUpgrade},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
-use axum::extract::ws::Message;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
-use crate::config::AppConfig;
-use crate::vault::VaultRepository;
-use crate::memory::{
-    MemoryRepository, MemoryRetriever, MemoryIngestion, IngestParams,
-    check_content, validate_layer_for_project,
-};
-use crate::run::{RunRepository, ToolRepository, RunContextRepository, EventStore};
-use crate::workspace::{FsWorkspaceBackend, WorkspaceBackend};
-use crate::project::ProjectRepository;
 use crate::agent::SharedEventBus;
-use crate::ws_agent::LlmFactory;
+use crate::config::AppConfig;
+use crate::memory::{
+    IngestParams, MemoryIngestion, MemoryRepository, MemoryRetriever, check_content,
+    validate_layer_for_project,
+};
+use crate::project::ProjectRepository;
 use crate::provider::embedding::EmbeddingProvider;
+use crate::run::{EventStore, RunContextRepository, RunRepository, ToolRepository};
 use crate::settings::ProviderSettingsRepository;
 use crate::settings::providers::ProvidersRepository;
+use crate::vault::VaultRepository;
+use crate::workspace::{FsWorkspaceBackend, WorkspaceBackend};
+use crate::ws_agent::LlmFactory;
 
 pub struct AppState {
     pub config: AppConfig,
@@ -51,11 +51,20 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/v1/runs", get(list_runs).post(create_run))
         .route("/v1/runs/:id", get(get_run))
         .route("/v1/runs/:id/transition", post(transition_run))
-        .route("/v1/runs/:id/events", get(list_run_events).post(append_run_event))
+        .route(
+            "/v1/runs/:id/events",
+            get(list_run_events).post(append_run_event),
+        )
         .route("/v1/runs/:id/tools", get(list_run_tools))
         .route("/v1/runs/:id/tools/stats", get(run_tools_stats))
-        .route("/v1/runs/:id/context", get(list_run_context).put(upsert_run_context))
-        .route("/v1/runs/:id/context/:slot", get(get_context_slot).delete(delete_context_slot))
+        .route(
+            "/v1/runs/:id/context",
+            get(list_run_context).put(upsert_run_context),
+        )
+        .route(
+            "/v1/runs/:id/context/:slot",
+            get(get_context_slot).delete(delete_context_slot),
+        )
         // Agent Todos
         .route("/v1/runs/:id/todos", get(list_run_todos))
         .route("/v1/runs/:id/ws", get(ws_handler))
@@ -63,30 +72,56 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/v1/memories", get(list_memories).post(create_memory))
         .route("/v1/memories/search", post(search_memories))
         // Vault
-        .route("/v1/credentials", get(list_credentials).post(store_credential))
-        .route("/v1/credentials/:name", get(get_credential_metadata).delete(delete_credential))
+        .route(
+            "/v1/credentials",
+            get(list_credentials).post(store_credential),
+        )
+        .route(
+            "/v1/credentials/:name",
+            get(get_credential_metadata).delete(delete_credential),
+        )
         // Workspace
         .route("/v1/projects/:id/workspace", get(list_workspace))
-        .route("/v1/projects/:id/workspace/*path", get(read_workspace_file).put(write_workspace_file))
+        .route(
+            "/v1/projects/:id/workspace/*path",
+            get(read_workspace_file).put(write_workspace_file),
+        )
         // Provider Settings (legacy singleton)
-        .route("/v1/settings/provider", get(get_provider_settings).put(save_provider_settings).delete(delete_provider_settings))
+        .route(
+            "/v1/settings/provider",
+            get(get_provider_settings)
+                .put(save_provider_settings)
+                .delete(delete_provider_settings),
+        )
         .route("/v1/settings/provider/proxy", post(proxy_provider_request))
         // Multi-Provider CRUD
         .route("/v1/providers", get(list_providers).post(create_provider))
-        .route("/v1/providers/:id", get(get_provider).put(update_provider).delete(delete_provider))
-        .route("/v1/providers/:id/models", get(list_provider_models).post(upsert_provider_model))
-        .route("/v1/providers/:id/models/clear", post(clear_provider_models))
+        .route(
+            "/v1/providers/:id",
+            get(get_provider)
+                .put(update_provider)
+                .delete(delete_provider),
+        )
+        .route(
+            "/v1/providers/:id/models",
+            get(list_provider_models).post(upsert_provider_model),
+        )
+        .route(
+            "/v1/providers/:id/models/clear",
+            post(clear_provider_models),
+        )
         .with_state(state);
 
-    if requires_auth {
-        if let Some(key) = api_key {
-            router = router.layer(axum::middleware::from_fn(move |req: axum::http::Request<axum::body::Body>, next: axum::middleware::Next| {
+    if let Some(key) = api_key.filter(|_| requires_auth) {
+        router = router.layer(axum::middleware::from_fn(
+            move |req: axum::http::Request<axum::body::Body>, next: axum::middleware::Next| {
                 let key = key.clone();
                 async move {
                     if req.uri().path() == "/health" {
                         return next.run(req).await;
                     }
-                    let auth = req.headers()
+                    let auth = req
+                        .headers()
                         .get("Authorization")
                         .and_then(|v| v.to_str().ok())
                         .and_then(|v| v.strip_prefix("Bearer "));
@@ -95,8 +130,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
                         _ => axum::http::StatusCode::UNAUTHORIZED.into_response(),
                     }
                 }
-            }));
-        }
+            },
+        ));
     }
 
     router
@@ -124,22 +159,27 @@ struct ProjectResponse {
     root_path: String,
 }
 
-async fn list_projects(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn list_projects(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let conn = state.conn.lock().unwrap();
     let repo = ProjectRepository::new(&conn, state.config.data_dir.clone());
     match repo.list(100) {
         Ok(projects) => {
-            let responses: Vec<ProjectResponse> = projects.into_iter().map(|p| ProjectResponse {
-                id: p.id,
-                uuid: hex::encode(&p.uuid),
-                name: p.name,
-                root_path: p.root_path,
-            }).collect();
+            let responses: Vec<ProjectResponse> = projects
+                .into_iter()
+                .map(|p| ProjectResponse {
+                    id: p.id,
+                    uuid: hex::encode(&p.uuid),
+                    name: p.name,
+                    root_path: p.root_path,
+                })
+                .collect();
             Json(serde_json::json!(responses)).into_response()
         }
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -155,14 +195,15 @@ async fn create_project(
     };
     match repo.create(&new_project) {
         Ok(id) => (StatusCode::CREATED, Json(serde_json::json!({"id": id}))).into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
-async fn get_project(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<i64>,
-) -> impl IntoResponse {
+async fn get_project(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> impl IntoResponse {
     let conn = state.conn.lock().unwrap();
     let repo = ProjectRepository::new(&conn, state.config.data_dir.clone());
     match repo.get(id) {
@@ -171,9 +212,14 @@ async fn get_project(
             uuid: hex::encode(&p.uuid),
             name: p.name,
             root_path: p.root_path,
-        })).into_response(),
+        }))
+        .into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -186,7 +232,11 @@ async fn delete_project(
     match repo.delete(id) {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -209,23 +259,28 @@ struct RunResponse {
     goal: String,
 }
 
-async fn list_runs(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn list_runs(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let conn = state.conn.lock().unwrap();
     let repo = RunRepository::new(&conn);
     match repo.list(None, None, 50) {
         Ok(runs) => {
-            let responses: Vec<RunResponse> = runs.into_iter().map(|r| RunResponse {
-                id: r.id,
-                uuid: hex::encode(&r.uuid),
-                status: r.status,
-                agent_name: r.agent_name,
-                goal: r.goal,
-            }).collect();
+            let responses: Vec<RunResponse> = runs
+                .into_iter()
+                .map(|r| RunResponse {
+                    id: r.id,
+                    uuid: hex::encode(&r.uuid),
+                    status: r.status,
+                    agent_name: r.agent_name,
+                    goal: r.goal,
+                })
+                .collect();
             Json(serde_json::json!(responses)).into_response()
         }
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -243,14 +298,15 @@ async fn create_run(
     };
     match repo.create(&new_run) {
         Ok(id) => (StatusCode::CREATED, Json(serde_json::json!({"id": id}))).into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
-async fn get_run(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<i64>,
-) -> impl IntoResponse {
+async fn get_run(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> impl IntoResponse {
     let conn = state.conn.lock().unwrap();
     let repo = RunRepository::new(&conn);
     match repo.get(id) {
@@ -260,9 +316,14 @@ async fn get_run(
             status: r.status,
             agent_name: r.agent_name,
             goal: r.goal,
-        })).into_response(),
+        }))
+        .into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -283,11 +344,27 @@ async fn transition_run(
     let repo = RunRepository::new(&conn);
     let status = match crate::run::state::RunStatus::parse_status(&req.to_status) {
         Some(s) => s,
-        None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid status"}))).into_response(),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid status"})),
+            )
+                .into_response();
+        }
     };
-    match repo.transition(id, status, req.reason.as_deref(), req.summary.as_deref(), req.error_message.as_deref()) {
+    match repo.transition(
+        id,
+        status,
+        req.reason.as_deref(),
+        req.summary.as_deref(),
+        req.error_message.as_deref(),
+    ) {
         Ok(()) => StatusCode::OK.into_response(),
-        Err(_e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "transition failed"}))).into_response(),
+        Err(_e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "transition failed"})),
+        )
+            .into_response(),
     }
 }
 
@@ -316,16 +393,23 @@ async fn list_run_events(
     let store = EventStore::new(&conn);
     match store.get_events(id) {
         Ok(events) => {
-            let responses: Vec<EventResponse> = events.into_iter().map(|e| EventResponse {
-                id: e.id,
-                seq: e.seq,
-                event_type: e.event_type,
-                payload: e.payload,
-                created_at: e.created_at,
-            }).collect();
+            let responses: Vec<EventResponse> = events
+                .into_iter()
+                .map(|e| EventResponse {
+                    id: e.id,
+                    seq: e.seq,
+                    event_type: e.event_type,
+                    payload: e.payload,
+                    created_at: e.created_at,
+                })
+                .collect();
             Json(serde_json::json!(responses)).into_response()
         }
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -337,11 +421,19 @@ async fn append_run_event(
     let conn = state.conn.lock().unwrap();
     let store = EventStore::new(&conn);
     match store.insert_event(id, &req.event_type, req.payload.as_deref().unwrap_or("{}")) {
-        Ok(event) => (StatusCode::CREATED, Json(serde_json::json!({
-            "id": event.id,
-            "seq": event.seq,
-        }))).into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Ok(event) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({
+                "id": event.id,
+                "seq": event.seq,
+            })),
+        )
+            .into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -367,19 +459,26 @@ async fn list_run_tools(
     let repo = ToolRepository::new(&conn);
     match repo.list_by_run(id) {
         Ok(tools) => {
-            let responses: Vec<ToolResponse> = tools.into_iter().map(|t| ToolResponse {
-                id: t.id,
-                tool_name: t.tool_name,
-                status: t.status,
-                duration_ms: t.duration_ms,
-                tokens_used: t.tokens_used,
-                error_message: t.error_message,
-                started_at: t.started_at,
-                completed_at: t.completed_at,
-            }).collect();
+            let responses: Vec<ToolResponse> = tools
+                .into_iter()
+                .map(|t| ToolResponse {
+                    id: t.id,
+                    tool_name: t.tool_name,
+                    status: t.status,
+                    duration_ms: t.duration_ms,
+                    tokens_used: t.tokens_used,
+                    error_message: t.error_message,
+                    started_at: t.started_at,
+                    completed_at: t.completed_at,
+                })
+                .collect();
             Json(serde_json::json!(responses)).into_response()
         }
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -397,8 +496,13 @@ async fn run_tools_stats(
             "total_duration_ms": stats.total_duration_ms,
             "total_tokens": stats.total_tokens,
             "total_cost": stats.total_cost,
-        })).into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        }))
+        .into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -418,16 +522,23 @@ async fn list_run_context(
     let repo = RunContextRepository::new(&conn);
     match repo.list_by_run(id) {
         Ok(contexts) => {
-            let responses: Vec<serde_json::Value> = contexts.into_iter().map(|c| {
-                serde_json::json!({
-                    "slot": c.slot,
-                    "content": c.content,
-                    "updated_at": c.updated_at,
+            let responses: Vec<serde_json::Value> = contexts
+                .into_iter()
+                .map(|c| {
+                    serde_json::json!({
+                        "slot": c.slot,
+                        "content": c.content,
+                        "updated_at": c.updated_at,
+                    })
                 })
-            }).collect();
+                .collect();
             Json(serde_json::json!(responses)).into_response()
         }
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -440,7 +551,11 @@ async fn upsert_run_context(
     let repo = RunContextRepository::new(&conn);
     match repo.upsert(id, &req.slot, &req.content) {
         Ok(()) => StatusCode::OK.into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -455,9 +570,14 @@ async fn get_context_slot(
             "slot": ctx.slot,
             "content": ctx.content,
             "updated_at": ctx.updated_at,
-        })).into_response(),
+        }))
+        .into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -470,7 +590,11 @@ async fn delete_context_slot(
     match repo.delete(id, &slot) {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -496,15 +620,23 @@ async fn create_memory(
     let project_id = req.project_id;
 
     if let Err(e) = validate_layer_for_project(&layer, project_id) {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e})),
+        )
+            .into_response();
     }
 
     let heuristic = check_content(&req.content);
     if !heuristic.passed {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-            "error": "content rejected by heuristic filter",
-            "reason": heuristic.reason
-        }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "content rejected by heuristic filter",
+                "reason": heuristic.reason
+            })),
+        )
+            .into_response();
     }
 
     let conn = state.conn.lock().unwrap();
@@ -525,11 +657,19 @@ async fn create_memory(
     };
 
     match ingestion.ingest(&ingest_params) {
-        Ok(result) => (StatusCode::CREATED, Json(serde_json::json!({
-            "id": result.memory_id,
-            "is_duplicate": result.is_duplicate,
-        }))).into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Ok(result) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({
+                "id": result.memory_id,
+                "is_duplicate": result.is_duplicate,
+            })),
+        )
+            .into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -564,15 +704,11 @@ async fn search_memories(
     let limit = req.limit.unwrap_or(20);
     let collection_id = req.collection_id.unwrap_or(1);
 
-    match retriever.retrieve(
-        &req.query,
-        req.project_id,
-        collection_id,
-        None,
-        limit,
-    ) {
+    match retriever.retrieve(&req.query, req.project_id, collection_id, None, limit) {
         Ok(result) => {
-            let responses: Vec<MemorySearchResult> = result.memories.into_iter()
+            let responses: Vec<MemorySearchResult> = result
+                .memories
+                .into_iter()
                 .zip(result.scores.iter())
                 .map(|(mem, (id, score))| {
                     let _ = id;
@@ -590,7 +726,11 @@ async fn search_memories(
                 .collect();
             Json(serde_json::json!(responses)).into_response()
         }
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "search failed"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "search failed"})),
+        )
+            .into_response(),
     }
 }
 
@@ -618,21 +758,28 @@ async fn list_memories(
 
     match result {
         Ok(memories) => {
-            let responses: Vec<serde_json::Value> = memories.into_iter().map(|m| {
-                serde_json::json!({
-                    "id": m.id,
-                    "content": m.content,
-                    "memory_type": m.memory_type,
-                    "layer": m.layer,
-                    "importance": m.importance,
-                    "access_count": m.access_count,
-                    "source": m.source,
-                    "created_at": m.created_at,
+            let responses: Vec<serde_json::Value> = memories
+                .into_iter()
+                .map(|m| {
+                    serde_json::json!({
+                        "id": m.id,
+                        "content": m.content,
+                        "memory_type": m.memory_type,
+                        "layer": m.layer,
+                        "importance": m.importance,
+                        "access_count": m.access_count,
+                        "source": m.source,
+                        "created_at": m.created_at,
+                    })
                 })
-            }).collect();
+                .collect();
             Json(serde_json::json!(responses)).into_response()
         }
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -647,9 +794,7 @@ struct StoreCredentialRequest {
     tags: Option<Vec<String>>,
 }
 
-async fn list_credentials(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn list_credentials(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let conn = state.conn.lock().unwrap();
     let vault = VaultRepository::new(&conn);
     match vault.list_credentials("global", None) {
@@ -665,7 +810,11 @@ async fn list_credentials(
             }).collect();
             Json(serde_json::json!(responses)).into_response()
         }
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -688,7 +837,11 @@ async fn store_credential(
         &tags,
     ) {
         Ok(id) => (StatusCode::CREATED, Json(serde_json::json!({"id": id}))).into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -724,7 +877,11 @@ async fn delete_credential(
     match vault.delete_credential(&name, "global", None) {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -743,21 +900,32 @@ async fn list_workspace(
             let uuid = project.uuid;
             match workspace.list_dir(&uuid, "") {
                 Ok(entries) => {
-                    let responses: Vec<serde_json::Value> = entries.into_iter().map(|e| {
-                        serde_json::json!({
-                            "path": e.path.to_str().unwrap_or(""),
-                            "is_dir": e.is_dir,
-                            "size": e.size,
-                            "modified": e.modified,
+                    let responses: Vec<serde_json::Value> = entries
+                        .into_iter()
+                        .map(|e| {
+                            serde_json::json!({
+                                "path": e.path.to_str().unwrap_or(""),
+                                "is_dir": e.is_dir,
+                                "size": e.size,
+                                "modified": e.modified,
+                            })
                         })
-                    }).collect();
+                        .collect();
                     Json(serde_json::json!(responses)).into_response()
                 }
-                Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "workspace error"}))).into_response(),
+                Err(_e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "workspace error"})),
+                )
+                    .into_response(),
             }
         }
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -780,15 +948,18 @@ async fn read_workspace_file(
                             "path": file_path,
                             "content": text,
                             "encoding": "utf-8",
-                        })).into_response(),
+                        }))
+                        .into_response(),
                         Err(_) => {
                             use base64::Engine;
-                            let encoded = base64::engine::general_purpose::STANDARD.encode(&content);
+                            let encoded =
+                                base64::engine::general_purpose::STANDARD.encode(&content);
                             Json(serde_json::json!({
                                 "path": file_path,
                                 "content": encoded,
                                 "encoding": "base64",
-                            })).into_response()
+                            }))
+                            .into_response()
                         }
                     }
                 }
@@ -796,7 +967,11 @@ async fn read_workspace_file(
             }
         }
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -819,11 +994,19 @@ async fn write_workspace_file(
             let uuid = project.uuid;
             match workspace.write_file(&uuid, &file_path, req.content.as_bytes()) {
                 Ok(()) => StatusCode::OK.into_response(),
-                Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "write failed"}))).into_response(),
+                Err(_e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "write failed"})),
+                )
+                    .into_response(),
             }
         }
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -837,10 +1020,16 @@ async fn list_run_todos(
     use rusqlite::params;
     let mut stmt = match conn.prepare(
         "SELECT task_id, title, description, status, created_at, updated_at
-         FROM agent_todos WHERE run_id = ?1 ORDER BY created_at"
+         FROM agent_todos WHERE run_id = ?1 ORDER BY created_at",
     ) {
         Ok(s) => s,
-        Err(_e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal error"})),
+            )
+                .into_response();
+        }
     };
     let todos = stmt.query_map(params![id], |r| {
         Ok(serde_json::json!({
@@ -857,7 +1046,11 @@ async fn list_run_todos(
             let collected: Vec<_> = rows.filter_map(|r| r.ok()).collect();
             Json(serde_json::json!({"tasks": collected})).into_response()
         }
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -870,9 +1063,7 @@ async fn ws_agent_handler(
     let factory = Arc::clone(&state.llm_factory);
     let embedding = Arc::clone(&state.embedding);
     let data_dir = state.config.data_dir.clone();
-    ws.on_upgrade(move |socket| {
-        crate::ws_agent::run_agent_ws(socket, factory, embedding, data_dir)
-    })
+    ws.on_upgrade(move |socket| crate::ws_agent::run_agent_ws(socket, factory, embedding, data_dir))
 }
 
 // === WebSocket — Real-time Agent Events ===
@@ -885,11 +1076,7 @@ async fn ws_handler(
     ws.on_upgrade(move |socket| handle_ws(socket, id, state))
 }
 
-async fn handle_ws(
-    mut socket: axum::extract::ws::WebSocket,
-    run_id: i64,
-    state: Arc<AppState>,
-) {
+async fn handle_ws(mut socket: axum::extract::ws::WebSocket, run_id: i64, state: Arc<AppState>) {
     use tokio::sync::broadcast::error::RecvError;
 
     let mut rx = state.event_bus.subscribe();
@@ -897,19 +1084,24 @@ async fn handle_ws(
     // Send initial state — drop conn guard before await
     let run_info = {
         let conn = state.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT status, tokens_used FROM runs WHERE id = ?1"
-        ).unwrap();
+        let mut stmt = conn
+            .prepare("SELECT status, tokens_used FROM runs WHERE id = ?1")
+            .unwrap();
         stmt.query_row(rusqlite::params![run_id], |r| {
             Ok(serde_json::json!({
                 "event_type": "init",
                 "status": r.get::<_, String>(0)?,
                 "tokens_used": r.get::<_, i64>(1)?,
             }))
-        }).unwrap_or_else(|_| serde_json::json!({"event_type": "init", "status": "unknown"}))
+        })
+        .unwrap_or_else(|_| serde_json::json!({"event_type": "init", "status": "unknown"}))
     };
 
-    if socket.send(Message::Text(run_info.to_string())).await.is_err() {
+    if socket
+        .send(Message::Text(run_info.to_string()))
+        .await
+        .is_err()
+    {
         return;
     }
 
@@ -947,14 +1139,15 @@ async fn handle_ws(
 
 // === Provider Settings ===
 
-async fn get_provider_settings(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn get_provider_settings(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let conn = state.conn.lock().unwrap();
     let repo = ProviderSettingsRepository::new(&conn);
     match repo.get() {
         Ok(Some(settings)) => {
-            let api_key = repo.get_api_key(&state.master_key.lock().unwrap()).ok().flatten();
+            let api_key = repo
+                .get_api_key(&state.master_key.lock().unwrap())
+                .ok()
+                .flatten();
             Json(serde_json::json!({
                 "base_url": settings.base_url,
                 "api_key_set": api_key.is_some(),
@@ -970,10 +1163,19 @@ async fn get_provider_settings(
                 "embedding_model": settings.embedding_model,
                 "embedding_dimensions": settings.embedding_dimensions,
                 "embedding_endpoint": settings.embedding_endpoint,
-            })).into_response()
+            }))
+            .into_response()
         }
-        Ok(None) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "no provider configured"}))).into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "no provider configured"})),
+        )
+            .into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -986,19 +1188,29 @@ async fn save_provider_settings(
     let master_key = state.master_key.lock().unwrap();
     match repo.save(&master_key, &req) {
         Ok(()) => Json(serde_json::json!({"status": "saved"})).into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "failed to save"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "failed to save"})),
+        )
+            .into_response(),
     }
 }
 
-async fn delete_provider_settings(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn delete_provider_settings(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let conn = state.conn.lock().unwrap();
     let repo = ProviderSettingsRepository::new(&conn);
     match repo.delete() {
         Ok(true) => Json(serde_json::json!({"status": "deleted"})).into_response(),
-        Ok(false) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "no settings found"}))).into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "no settings found"})),
+        )
+            .into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -1016,10 +1228,25 @@ async fn proxy_provider_request(
         let repo = ProviderSettingsRepository::new(&conn);
         let settings = match repo.get() {
             Ok(Some(s)) => s,
-            Ok(None) => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "no provider configured"}))).into_response(),
-            Err(_e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+            Ok(None) => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({"error": "no provider configured"})),
+                )
+                    .into_response();
+            }
+            Err(_e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "internal error"})),
+                )
+                    .into_response();
+            }
         };
-        let key = repo.get_api_key(&state.master_key.lock().unwrap()).ok().flatten();
+        let key = repo
+            .get_api_key(&state.master_key.lock().unwrap())
+            .ok()
+            .flatten();
         (settings.base_url, key)
     };
 
@@ -1035,26 +1262,41 @@ async fn proxy_provider_request(
             let status = resp.status();
             match resp.text().await {
                 Ok(body) => {
-                    let parsed: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::json!({"raw": body}));
-                    (StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::OK), Json(parsed)).into_response()
+                    let parsed: serde_json::Value =
+                        serde_json::from_str(&body).unwrap_or(serde_json::json!({"raw": body}));
+                    (
+                        StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::OK),
+                        Json(parsed),
+                    )
+                        .into_response()
                 }
-                Err(_e) => (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error": "failed to read response"}))).into_response(),
+                Err(_e) => (
+                    StatusCode::BAD_GATEWAY,
+                    Json(serde_json::json!({"error": "failed to read response"})),
+                )
+                    .into_response(),
             }
         }
-        Err(_e) => (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error": "failed to reach provider"}))).into_response(),
+        Err(_e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({"error": "failed to reach provider"})),
+        )
+            .into_response(),
     }
 }
 
 // === Multi-Provider CRUD ===
 
-async fn list_providers(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn list_providers(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let conn = state.conn.lock().unwrap();
     let repo = ProvidersRepository::new(&conn);
     match repo.list() {
         Ok(providers) => Json(serde_json::json!(providers)).into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -1067,7 +1309,11 @@ async fn get_provider(
     match repo.get(id) {
         Ok(Some(p)) => Json(serde_json::json!(p)).into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -1080,7 +1326,11 @@ async fn create_provider(
     let master_key = state.master_key.lock().unwrap();
     match repo.create(&master_key, &req) {
         Ok(id) => (StatusCode::CREATED, Json(serde_json::json!({"id": id}))).into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "failed to create provider"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "failed to create provider"})),
+        )
+            .into_response(),
     }
 }
 
@@ -1095,7 +1345,11 @@ async fn update_provider(
     match repo.update(&master_key, id, &req) {
         Ok(true) => Json(serde_json::json!({"status": "updated"})).into_response(),
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "failed to update provider"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "failed to update provider"})),
+        )
+            .into_response(),
     }
 }
 
@@ -1108,7 +1362,11 @@ async fn delete_provider(
     match repo.delete(id) {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -1120,7 +1378,11 @@ async fn list_provider_models(
     let repo = ProvidersRepository::new(&conn);
     match repo.list_models(id) {
         Ok(models) => Json(serde_json::json!(models)).into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }
 
@@ -1132,8 +1394,16 @@ async fn upsert_provider_model(
     let conn = state.conn.lock().unwrap();
     let repo = ProvidersRepository::new(&conn);
     match repo.upsert_model(id, &model) {
-        Ok(model_id) => (StatusCode::CREATED, Json(serde_json::json!({"id": model_id}))).into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "failed to save model"}))).into_response(),
+        Ok(model_id) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({"id": model_id})),
+        )
+            .into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "failed to save model"})),
+        )
+            .into_response(),
     }
 }
 
@@ -1145,6 +1415,10 @@ async fn clear_provider_models(
     let repo = ProvidersRepository::new(&conn);
     match repo.delete_models(id) {
         Ok(n) => Json(serde_json::json!({"deleted": n})).into_response(),
-        Err(_e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"}))).into_response(),
+        Err(_e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal error"})),
+        )
+            .into_response(),
     }
 }

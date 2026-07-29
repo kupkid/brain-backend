@@ -1,3 +1,3 @@
 pub mod routes;
 
-pub use routes::{create_router, AppState};
+pub use routes::{AppState, create_router};

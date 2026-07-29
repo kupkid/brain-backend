@@ -100,7 +100,12 @@ impl EmbeddingProvider for CohereEmbedding {
             }
         }
 
-        info!("embedded {} texts (model={}, dims={})", texts.len(), self.model, self.dimensions);
+        info!(
+            "embedded {} texts (model={}, dims={})",
+            texts.len(),
+            self.model,
+            self.dimensions
+        );
         Ok(embeddings)
     }
 

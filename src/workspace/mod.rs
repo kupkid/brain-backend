@@ -32,18 +32,35 @@ pub struct FileEntry {
 }
 
 pub trait WorkspaceBackend: Send + Sync {
-    fn read_file(&self, project_uuid: &[u8], relative_path: &str) -> Result<Vec<u8>, WorkspaceError>;
+    fn read_file(
+        &self,
+        project_uuid: &[u8],
+        relative_path: &str,
+    ) -> Result<Vec<u8>, WorkspaceError>;
 
-    fn write_file(&self, project_uuid: &[u8], relative_path: &str, content: &[u8]) -> Result<(), WorkspaceError>;
+    fn write_file(
+        &self,
+        project_uuid: &[u8],
+        relative_path: &str,
+        content: &[u8],
+    ) -> Result<(), WorkspaceError>;
 
-    fn list_dir(&self, project_uuid: &[u8], relative_path: &str) -> Result<Vec<FileEntry>, WorkspaceError>;
+    fn list_dir(
+        &self,
+        project_uuid: &[u8],
+        relative_path: &str,
+    ) -> Result<Vec<FileEntry>, WorkspaceError>;
 
     fn exists(&self, project_uuid: &[u8], relative_path: &str) -> Result<bool, WorkspaceError>;
 
     fn workspace_root(&self, project_uuid: &[u8]) -> PathBuf;
 
     /// Canonicalize and validate a path is within workspace
-    fn validate_path(&self, project_uuid: &[u8], relative_path: &str) -> Result<PathBuf, WorkspaceError> {
+    fn validate_path(
+        &self,
+        project_uuid: &[u8],
+        relative_path: &str,
+    ) -> Result<PathBuf, WorkspaceError> {
         // Reject absolute paths
         if Path::new(relative_path).is_absolute() {
             return Err(WorkspaceError::AbsolutePath(relative_path.to_string()));
@@ -58,7 +75,9 @@ pub trait WorkspaceBackend: Send + Sync {
         let full_path = root.join(relative_path);
 
         // Canonicalize to resolve symlinks
-        let canonical = full_path.canonicalize().unwrap_or_else(|_| full_path.clone());
+        let canonical = full_path
+            .canonicalize()
+            .unwrap_or_else(|_| full_path.clone());
 
         // Verify path starts with workspace root
         let canonical_root = root.canonicalize().unwrap_or(root);

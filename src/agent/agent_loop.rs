@@ -1,26 +1,49 @@
-use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
-use crate::provider::llm::{LlmMessage, LlmProvider};
-use crate::provider::embedding::EmbeddingProvider;
-use crate::memory::MemoryRepository;
-use crate::memory::repository::NewMemory;
-use crate::memory::heuristic;
 use super::config::AgentConfig;
+use super::tool_trait::{ToolImportance, ToolOutput};
 use super::tools::ToolBox;
-use super::tool_trait::{ToolOutput, ToolImportance};
+use crate::memory::MemoryRepository;
+use crate::memory::heuristic;
+use crate::memory::repository::NewMemory;
+use crate::provider::embedding::EmbeddingProvider;
+use crate::provider::llm::{LlmMessage, LlmProvider};
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WsAgentEvent {
-    Thought { text: String, ts: i64 },
-    Text { text: String, ts: i64 },
-    ToolCall { tool: String, args: serde_json::Value, call_id: String, ts: i64 },
-    ToolResult { call_id: String, success: bool, summary: String, ts: i64 },
-    TodoUpdate { todos: Vec<TodoItem>, ts: i64 },
-    FileRead { path: String, text: String, ts: i64 },
+    Thought {
+        text: String,
+        ts: i64,
+    },
+    Text {
+        text: String,
+        ts: i64,
+    },
+    ToolCall {
+        tool: String,
+        args: serde_json::Value,
+        call_id: String,
+        ts: i64,
+    },
+    ToolResult {
+        call_id: String,
+        success: bool,
+        summary: String,
+        ts: i64,
+    },
+    TodoUpdate {
+        todos: Vec<TodoItem>,
+        ts: i64,
+    },
+    FileRead {
+        path: String,
+        text: String,
+        ts: i64,
+    },
     Done {
         summary: String,
         total_tokens: usize,
@@ -31,7 +54,10 @@ pub enum WsAgentEvent {
         tokens_per_sec: f64,
         ts: i64,
     },
-    Error { message: String, ts: i64 },
+    Error {
+        message: String,
+        ts: i64,
+    },
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -83,7 +109,15 @@ impl AgentLoop {
         config: AgentConfig,
         run_id: i64,
     ) -> Self {
-        Self { llm, embedding, conn, tools, config, run_id, event_tx: None }
+        Self {
+            llm,
+            embedding,
+            conn,
+            tools,
+            config,
+            run_id,
+            event_tx: None,
+        }
     }
 
     pub fn with_event_sender(mut self, tx: mpsc::Sender<WsAgentEvent>) -> Self {
@@ -91,7 +125,9 @@ impl AgentLoop {
         self
     }
 
-    pub fn tools_ref(&self) -> &ToolBox { &self.tools }
+    pub fn tools_ref(&self) -> &ToolBox {
+        &self.tools
+    }
 
     fn emit(&self, event: WsAgentEvent) {
         if let Some(tx) = &self.event_tx {
@@ -132,7 +168,15 @@ impl AgentLoop {
             tool_calls: None,
         });
 
-        info!("User message ({} chars): {}", user_message.len(), if user_message.len() > 200 { format!("{}...", &user_message[..200]) } else { user_message.to_string() });
+        info!(
+            "User message ({} chars): {}",
+            user_message.len(),
+            if user_message.len() > 200 {
+                format!("{}...", &user_message[..200])
+            } else {
+                user_message.to_string()
+            }
+        );
 
         let mut all_results = Vec::new();
         let mut total_tokens = 0usize;
@@ -143,11 +187,18 @@ impl AgentLoop {
 
         loop {
             let llm_start = std::time::Instant::now();
-            let result = match self.llm.complete_with_tools(&messages, Some(8192), Some(0.7)).await {
+            let result = match self
+                .llm
+                .complete_with_tools(&messages, Some(8192), Some(0.7))
+                .await
+            {
                 Ok(r) => r,
                 Err(e) => {
                     warn!("LLM error: {e}");
-                    self.emit(WsAgentEvent::Error { message: e.to_string(), ts: Self::ts() });
+                    self.emit(WsAgentEvent::Error {
+                        message: e.to_string(),
+                        ts: Self::ts(),
+                    });
                     return AgentResponse {
                         content: format!("Error: {e}"),
                         tool_results: all_results,
@@ -166,22 +217,33 @@ impl AgentLoop {
             if !result.tool_calls.is_empty() {
                 // Emit thought if LLM produced text content
                 if !result.content.is_empty() {
-                    self.emit(WsAgentEvent::Thought { text: result.content.clone(), ts: Self::ts() });
+                    self.emit(WsAgentEvent::Thought {
+                        text: result.content.clone(),
+                        ts: Self::ts(),
+                    });
                 }
 
-                let tool_calls_json: Vec<serde_json::Value> = result.tool_calls.iter().map(|tc| {
-                    serde_json::json!({
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.name,
-                            "arguments": tc.arguments.to_string(),
-                        }
+                let tool_calls_json: Vec<serde_json::Value> = result
+                    .tool_calls
+                    .iter()
+                    .map(|tc| {
+                        serde_json::json!({
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.name,
+                                "arguments": tc.arguments.to_string(),
+                            }
+                        })
                     })
-                }).collect();
+                    .collect();
                 messages.push(LlmMessage {
                     role: "assistant".to_string(),
-                    content: if result.content.is_empty() { String::new() } else { result.content.clone() },
+                    content: if result.content.is_empty() {
+                        String::new()
+                    } else {
+                        result.content.clone()
+                    },
                     tool_call_id: None,
                     tool_calls: Some(tool_calls_json),
                 });
@@ -206,17 +268,26 @@ impl AgentLoop {
                     };
 
                     // Emit tool_result
-                    let summary = output.summary.clone().unwrap_or_else(|| {
-                        match &output.result {
+                    let summary = output
+                        .summary
+                        .clone()
+                        .unwrap_or_else(|| match &output.result {
                             serde_json::Value::String(s) => {
-                                if s.len() > 200 { format!("{}...", &s[..200]) } else { s.clone() }
+                                if s.len() > 200 {
+                                    format!("{}...", &s[..200])
+                                } else {
+                                    s.clone()
+                                }
                             }
                             other => {
                                 let s = other.to_string();
-                                if s.len() > 200 { format!("{}...", &s[..200]) } else { s }
+                                if s.len() > 200 {
+                                    format!("{}...", &s[..200])
+                                } else {
+                                    s
+                                }
                             }
-                        }
-                    });
+                        });
                     self.emit(WsAgentEvent::ToolResult {
                         call_id: call_id.clone(),
                         success: !output.result.is_null(),
@@ -230,11 +301,16 @@ impl AgentLoop {
                             serde_json::Value::String(s) => s.clone(),
                             other => other.to_string(),
                         };
-                        let path = args_val.get("path")
+                        let path = args_val
+                            .get("path")
                             .and_then(|v| v.as_str())
                             .unwrap_or("unknown")
                             .to_string();
-                        self.emit(WsAgentEvent::FileRead { path, text, ts: Self::ts() });
+                        self.emit(WsAgentEvent::FileRead {
+                            path,
+                            text,
+                            ts: Self::ts(),
+                        });
                     }
 
                     // Emit todo_update if this was a todo tool
@@ -248,9 +324,13 @@ impl AgentLoop {
                             serde_json::Value::String(s) => s.clone(),
                             other => {
                                 let s = other.to_string();
-                                if s.len() > 4000 { s[..4000].to_string() } else { s }
+                                if s.len() > 4000 {
+                                    s[..4000].to_string()
+                                } else {
+                                    s
+                                }
                             }
-                        }
+                        },
                     };
 
                     messages.push(LlmMessage {
@@ -281,10 +361,17 @@ impl AgentLoop {
                 self.store_memory(user_message, &result.content).await;
 
                 // Emit TextEvent for streaming display
-                self.emit(WsAgentEvent::Text { text: result.content.clone(), ts: Self::ts() });
+                self.emit(WsAgentEvent::Text {
+                    text: result.content.clone(),
+                    ts: Self::ts(),
+                });
 
                 let elapsed_ms = start_time.elapsed().as_millis() as u64;
-                let tps = if elapsed_ms > 0 { (total_tokens as f64 * 1000.0) / elapsed_ms as f64 } else { 0.0 };
+                let tps = if elapsed_ms > 0 {
+                    (total_tokens as f64 * 1000.0) / elapsed_ms as f64
+                } else {
+                    0.0
+                };
                 self.emit(WsAgentEvent::Done {
                     summary: result.content.clone(),
                     total_tokens,
@@ -311,29 +398,37 @@ impl AgentLoop {
         };
         use rusqlite::params;
         let mut stmt = match conn.prepare(
-            "SELECT task_id, title, status FROM agent_todos WHERE run_id = ?1 ORDER BY created_at"
+            "SELECT task_id, title, status FROM agent_todos WHERE run_id = ?1 ORDER BY created_at",
         ) {
             Ok(s) => s,
             Err(_) => return,
         };
-        let todos: Vec<TodoItem> = stmt.query_map(params![self.run_id], |r| {
-            Ok(TodoItem {
-                id: r.get(0)?,
-                text: r.get(1)?,
-                status: r.get(2)?,
+        let todos: Vec<TodoItem> = stmt
+            .query_map(params![self.run_id], |r| {
+                Ok(TodoItem {
+                    id: r.get(0)?,
+                    text: r.get(1)?,
+                    status: r.get(2)?,
+                })
             })
-        })
-        .ok()
-        .into_iter()
-        .flatten()
-        .filter_map(|r| r.ok())
-        .collect();
-        self.emit(WsAgentEvent::TodoUpdate { todos, ts: Self::ts() });
+            .ok()
+            .into_iter()
+            .flatten()
+            .filter_map(|r| r.ok())
+            .collect();
+        self.emit(WsAgentEvent::TodoUpdate {
+            todos,
+            ts: Self::ts(),
+        });
     }
 
     fn collapse_old_tool_calls(&self, messages: &mut Vec<LlmMessage>) {
         let system_len = 1;
-        let user_len = if messages.len() > 1 && messages[1].role == "user" { 1 } else { 0 };
+        let user_len = if messages.len() > 1 && messages[1].role == "user" {
+            1
+        } else {
+            0
+        };
         let keep_from = system_len + user_len;
 
         let mut tool_result_count = 0usize;
@@ -345,12 +440,17 @@ impl AgentLoop {
             }
         }
 
-        if tool_result_count <= Self::MAX_TOOL_HISTORY * 2 { return; }
+        if tool_result_count <= Self::MAX_TOOL_HISTORY * 2 {
+            return;
+        }
 
         let collapse_end = messages.len() - Self::MAX_TOOL_HISTORY * 2;
-        if collapse_end <= keep_from { return; }
+        if collapse_end <= keep_from {
+            return;
+        }
 
-        let collapsed_count = messages[keep_from..collapse_end].iter()
+        let collapsed_count = messages[keep_from..collapse_end]
+            .iter()
             .filter(|m| m.role == "tool")
             .count();
 
@@ -380,13 +480,25 @@ impl AgentLoop {
             _ => "",
         };
         let month = match local.format("%B").to_string().as_str() {
-            "January" => "января", "February" => "февраля", "March" => "марта",
-            "April" => "апреля", "May" => "мая", "June" => "июня",
-            "July" => "июля", "August" => "августа", "September" => "сентября",
-            "October" => "октября", "November" => "ноября", "December" => "декабря",
+            "January" => "января",
+            "February" => "февраля",
+            "March" => "марта",
+            "April" => "апреля",
+            "May" => "мая",
+            "June" => "июня",
+            "July" => "июля",
+            "August" => "августа",
+            "September" => "сентября",
+            "October" => "октября",
+            "November" => "ноября",
+            "December" => "декабря",
             _ => "",
         };
-        let day = local.format("%d").to_string().trim_start_matches('0').to_string();
+        let day = local
+            .format("%d")
+            .to_string()
+            .trim_start_matches('0')
+            .to_string();
 
         format!(
             "Ты — AI-агент Brain. Сегодня {weekday}, {day} {month} {year} года, {time} MSK.\n\n\
@@ -422,29 +534,40 @@ impl AgentLoop {
                     pruned.push(msg.clone());
                 }
                 ToolImportance::Normal => {
-                    if normal_count < self.config.max_normal_observations && used_tokens + tokens < threshold {
+                    if normal_count < self.config.max_normal_observations
+                        && used_tokens + tokens < threshold
+                    {
                         used_tokens += tokens;
                         normal_count += 1;
                         pruned.push(msg.clone());
-                    } else { skipped += 1; }
+                    } else {
+                        skipped += 1;
+                    }
                 }
                 ToolImportance::Low => {
-                    if low_count < self.config.max_low_observations && used_tokens + tokens < threshold {
+                    if low_count < self.config.max_low_observations
+                        && used_tokens + tokens < threshold
+                    {
                         used_tokens += tokens;
                         low_count += 1;
                         pruned.push(msg.clone());
-                    } else { skipped += 1; }
+                    } else {
+                        skipped += 1;
+                    }
                 }
             }
         }
         pruned.reverse();
 
         if skipped > 0 {
-            pruned.insert(0, AgentMessage {
-                role: "system".to_string(),
-                content: format!("[Earlier: {skipped} observations pruned from context]"),
-                importance: ToolImportance::High,
-            });
+            pruned.insert(
+                0,
+                AgentMessage {
+                    role: "system".to_string(),
+                    content: format!("[Earlier: {skipped} observations pruned from context]"),
+                    importance: ToolImportance::High,
+                },
+            );
         }
         pruned
     }
@@ -454,7 +577,9 @@ impl AgentLoop {
         let mem_repo = MemoryRepository::new(&conn);
         let hash = crate::memory::compute_content_hash(agent_response);
         let content = format!("User: {}\nAgent: {}", user_msg, agent_response);
-        if !heuristic::check_content(&content).passed { return; }
+        if !heuristic::check_content(&content).passed {
+            return;
+        }
 
         let new_mem = NewMemory {
             collection_id: 1,

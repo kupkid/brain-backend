@@ -1,4 +1,4 @@
-use crate::agent::tool_trait::{Tool, ToolOutput, ToolImportance};
+use crate::agent::tool_trait::{Tool, ToolImportance, ToolOutput};
 
 pub struct FileOps {
     workspace_dir: std::path::PathBuf,
@@ -10,7 +10,9 @@ impl FileOps {
     }
 
     fn ws_root(&self) -> std::path::PathBuf {
-        self.workspace_dir.canonicalize().unwrap_or_else(|_| self.workspace_dir.clone())
+        self.workspace_dir
+            .canonicalize()
+            .unwrap_or_else(|_| self.workspace_dir.clone())
     }
 
     /// Validate path for read — parent must exist
@@ -23,7 +25,9 @@ impl FileOps {
         }
         let ws_root = self.ws_root();
         let full = ws_root.join(path);
-        let canonical = full.canonicalize().map_err(|e| format!("path error: {e}"))?;
+        let canonical = full
+            .canonicalize()
+            .map_err(|e| format!("path error: {e}"))?;
         if !canonical.starts_with(&ws_root) {
             return Err("path escapes workspace".to_string());
         }
@@ -52,14 +56,26 @@ impl FileOps {
     }
 }
 
-pub struct ReadFile { pub inner: FileOps }
-pub struct WriteFile { pub inner: FileOps }
-pub struct ListDir { pub inner: FileOps }
-pub struct GrepFile { pub inner: FileOps }
+pub struct ReadFile {
+    pub inner: FileOps,
+}
+pub struct WriteFile {
+    pub inner: FileOps,
+}
+pub struct ListDir {
+    pub inner: FileOps,
+}
+pub struct GrepFile {
+    pub inner: FileOps,
+}
 
 impl Tool for ReadFile {
-    fn name(&self) -> &str { "read_file" }
-    fn description(&self) -> &str { "Read a file's contents. Returns content and line count." }
+    fn name(&self) -> &str {
+        "read_file"
+    }
+    fn description(&self) -> &str {
+        "Read a file's contents. Returns content and line count."
+    }
     fn parameters(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
@@ -78,8 +94,12 @@ impl Tool for ReadFile {
 }
 
 impl Tool for WriteFile {
-    fn name(&self) -> &str { "write_file" }
-    fn description(&self) -> &str { "Write content to a file. Creates parent directories." }
+    fn name(&self) -> &str {
+        "write_file"
+    }
+    fn description(&self) -> &str {
+        "Write content to a file. Creates parent directories."
+    }
     fn parameters(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
@@ -95,13 +115,20 @@ impl Tool for WriteFile {
         let content = args["content"].as_str().ok_or("missing 'content'")?;
         let full = self.inner.validate_path_for_write(path)?;
         std::fs::write(&full, content).map_err(|e| format!("write error: {e}"))?;
-        Ok(ToolOutput::text(&format!("ok ({bytes} bytes)", bytes = content.len()), ToolImportance::Normal))
+        Ok(ToolOutput::text(
+            &format!("ok ({bytes} bytes)", bytes = content.len()),
+            ToolImportance::Normal,
+        ))
     }
 }
 
 impl Tool for ListDir {
-    fn name(&self) -> &str { "list_dir" }
-    fn description(&self) -> &str { "List directory contents with file types and sizes." }
+    fn name(&self) -> &str {
+        "list_dir"
+    }
+    fn description(&self) -> &str {
+        "List directory contents with file types and sizes."
+    }
     fn parameters(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
@@ -130,8 +157,12 @@ impl Tool for ListDir {
 }
 
 impl Tool for GrepFile {
-    fn name(&self) -> &str { "grep" }
-    fn description(&self) -> &str { "Search file contents by regex pattern. Returns matching lines." }
+    fn name(&self) -> &str {
+        "grep"
+    }
+    fn description(&self) -> &str {
+        "Search file contents by regex pattern. Returns matching lines."
+    }
     fn parameters(&self) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
@@ -148,7 +179,8 @@ impl Tool for GrepFile {
         let full = self.inner.validate_path(path)?;
         let content = std::fs::read_to_string(&full).map_err(|e| format!("read error: {e}"))?;
         let re = regex::Regex::new(pattern).map_err(|e| format!("invalid regex: {e}"))?;
-        let matches: Vec<String> = content.lines()
+        let matches: Vec<String> = content
+            .lines()
             .enumerate()
             .filter(|(_, line)| re.is_match(line))
             .map(|(i, line)| format!("L{}: {}", i + 1, line))
@@ -156,7 +188,10 @@ impl Tool for GrepFile {
         if matches.is_empty() {
             Ok(ToolOutput::text("no matches", ToolImportance::Normal))
         } else {
-            Ok(ToolOutput::text(&matches.join("\n"), ToolImportance::Normal))
+            Ok(ToolOutput::text(
+                &matches.join("\n"),
+                ToolImportance::Normal,
+            ))
         }
     }
 }

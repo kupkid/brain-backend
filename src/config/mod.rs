@@ -35,8 +35,8 @@ impl AppConfig {
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("~/.brain"));
 
-        let listen_addr = std::env::var("BRAIN_LISTEN_ADDR")
-            .unwrap_or_else(|_| "0.0.0.0".to_string());
+        let listen_addr =
+            std::env::var("BRAIN_LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0".to_string());
 
         let listen_port = std::env::var("BRAIN_LISTEN_PORT")
             .unwrap_or_else(|_| "8642".to_string())
@@ -50,8 +50,7 @@ impl AppConfig {
             endpoint: std::env::var("EMBEDDING_ENDPOINT")
                 .unwrap_or_else(|_| "http://localhost:11434".to_string()),
             api_key: std::env::var("EMBEDDING_API_KEY").ok(),
-            model: std::env::var("EMBEDDING_MODEL")
-                .unwrap_or_else(|_| "bge-m3".to_string()),
+            model: std::env::var("EMBEDDING_MODEL").unwrap_or_else(|_| "bge-m3".to_string()),
             dimensions: std::env::var("EMBEDDING_DIMENSIONS")
                 .unwrap_or_else(|_| "1024".to_string())
                 .parse()?,
@@ -63,8 +62,7 @@ impl AppConfig {
             endpoint: std::env::var("LLM_ENDPOINT")
                 .unwrap_or_else(|_| "https://api.openai.com/v1".to_string()),
             api_key: std::env::var("LLM_API_KEY").ok(),
-            model: std::env::var("LLM_MODEL")
-                .unwrap_or_else(|_| "gpt-4o-mini".to_string()),
+            model: std::env::var("LLM_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string()),
             max_tokens: std::env::var("LLM_MAX_TOKENS")
                 .unwrap_or_else(|_| "4096".to_string())
                 .parse()?,

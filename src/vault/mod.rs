@@ -2,5 +2,5 @@ pub mod crypto;
 pub mod repository;
 
 #[allow(unused_imports)]
-pub use crypto::{VaultCrypto, EncryptedPayload, Argon2Params, MasterKeyMaterial, CryptoError};
+pub use crypto::{Argon2Params, CryptoError, EncryptedPayload, MasterKeyMaterial, VaultCrypto};
 pub use repository::VaultRepository;
