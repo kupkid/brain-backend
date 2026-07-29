@@ -10,7 +10,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import com.brain.app.ui.AgentChatScreen
 import com.brain.app.ui.SettingsScreen
 import com.brain.app.ui.theme.BrainTheme
@@ -33,7 +32,7 @@ class MainActivity : ComponentActivity() {
                 Scaffold(
                     bottomBar = {
                         NavigationBar(
-                            containerColor = Color(0xFF0A0A0A)
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                         ) {
                             NavigationBarItem(
                                 icon = { Icon(Icons.Default.Chat, null) },
@@ -43,9 +42,9 @@ class MainActivity : ComponentActivity() {
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = MaterialTheme.colorScheme.primary,
                                     selectedTextColor = MaterialTheme.colorScheme.primary,
-                                    unselectedIconColor = Color(0xFF666666),
-                                    unselectedTextColor = Color(0xFF666666),
-                                    indicatorColor = Color(0xFF1A1A2E)
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer
                                 )
                             )
                             NavigationBarItem(
@@ -56,9 +55,9 @@ class MainActivity : ComponentActivity() {
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = MaterialTheme.colorScheme.primary,
                                     selectedTextColor = MaterialTheme.colorScheme.primary,
-                                    unselectedIconColor = Color(0xFF666666),
-                                    unselectedTextColor = Color(0xFF666666),
-                                    indicatorColor = Color(0xFF1A1A2E)
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer
                                 )
                             )
                         }

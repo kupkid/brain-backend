@@ -20,7 +20,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -51,7 +50,7 @@ fun AgentChatScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Brain Agent") },
+                title = { Text("Brain") },
                 actions = {
                     if (isRunning) {
                         IconButton(onClick = onStop) {
@@ -60,14 +59,14 @@ fun AgentChatScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Black,
-                    titleContentColor = Color.White,
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
                 )
             )
         },
         bottomBar = {
             Surface(
-                color = Color(0xFF0A0A0A),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
                 tonalElevation = 0.dp
             ) {
                 Row(
@@ -81,13 +80,13 @@ fun AgentChatScreen(
                         value = input,
                         onValueChange = { input = it },
                         modifier = Modifier.weight(1f),
-                        placeholder = { Text("Задача...", color = Color(0xFF666666)) },
+                        placeholder = { Text("Task...", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = Color(0xFF333333),
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
                             cursorColor = MaterialTheme.colorScheme.primary,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
                         ),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                         keyboardActions = KeyboardActions(
@@ -116,13 +115,13 @@ fun AgentChatScreen(
                             "Send",
                             tint = if (input.isNotBlank() && !isRunning)
                                 MaterialTheme.colorScheme.primary
-                            else Color(0xFF444444)
+                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
                         )
                     }
                 }
             }
         },
-        containerColor = Color.Black
+        containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         if (events.isEmpty() && !isRunning) {
             Box(
@@ -132,9 +131,9 @@ fun AgentChatScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    "Введите задачу",
-                    color = Color(0xFF444444),
-                    fontSize = 16.sp
+                    "Enter a task",
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                    style = MaterialTheme.typography.bodyLarge
                 )
             }
         } else {
@@ -167,9 +166,8 @@ fun AgentChatScreen(
 fun ThoughtBubble(event: ThoughtEvent) {
     Text(
         text = event.text,
-        color = Color(0xFF888888),
-        fontStyle = FontStyle.Italic,
-        fontSize = 14.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        style = MaterialTheme.typography.bodyMedium,
         modifier = Modifier.padding(start = 4.dp, top = 4.dp)
     )
 }
@@ -190,8 +188,8 @@ fun ToolCallCard(event: ToolCallEvent) {
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF111111)),
-        shape = RoundedCornerShape(8.dp)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+        shape = RoundedCornerShape(10.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
@@ -214,7 +212,7 @@ fun ToolCallCard(event: ToolCallEvent) {
                 if (argsPreview.isNotEmpty()) {
                     Text(
                         text = argsPreview,
-                        color = Color(0xFF777777),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -223,7 +221,7 @@ fun ToolCallCard(event: ToolCallEvent) {
             }
             Text(
                 text = event.call_id,
-                color = Color(0xFF555555),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace
             )
@@ -240,13 +238,13 @@ fun ToolResultBadge(event: ToolResultEvent) {
         Icon(
             if (event.success) Icons.Default.CheckCircle else Icons.Default.Error,
             contentDescription = null,
-            tint = if (event.success) Color(0xFF66BB6A) else Color(0xFFEF5350),
+            tint = if (event.success) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
             modifier = Modifier.size(14.dp)
         )
         Spacer(Modifier.width(6.dp))
         Text(
             text = event.summary.take(120),
-            color = if (event.success) Color(0xFF999999) else Color(0xFFEF5350),
+            color = if (event.success) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
             fontSize = 12.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -258,8 +256,8 @@ fun ToolResultBadge(event: ToolResultEvent) {
 fun TodoCard(event: TodoUpdateEvent) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0D1117)),
-        shape = RoundedCornerShape(8.dp)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+        shape = RoundedCornerShape(10.dp)
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
             val done = event.todos.count { it.status == "done" }
@@ -272,7 +270,7 @@ fun TodoCard(event: TodoUpdateEvent) {
                         .height(3.dp)
                         .clip(RoundedCornerShape(2.dp)),
                     color = MaterialTheme.colorScheme.primary,
-                    trackColor = Color(0xFF222222),
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 )
                 Spacer(Modifier.height(6.dp))
             }
@@ -284,13 +282,13 @@ fun TodoCard(event: TodoUpdateEvent) {
                     Icon(
                         if (todo.status == "done") Icons.Default.Check else Icons.Default.Send,
                         contentDescription = null,
-                        tint = if (todo.status == "done") Color(0xFF66BB6A) else Color(0xFF666666),
+                        tint = if (todo.status == "done") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(14.dp)
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
                         text = todo.text,
-                        color = if (todo.status == "done") Color(0xFF777777) else Color.White,
+                        color = if (todo.status == "done") MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                         fontSize = 13.sp
                     )
                 }
@@ -303,8 +301,8 @@ fun TodoCard(event: TodoUpdateEvent) {
 fun FileReadBlock(event: FileReadEvent) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0A0F14)),
-        shape = RoundedCornerShape(8.dp)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+        shape = RoundedCornerShape(10.dp)
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
             Text(
@@ -317,7 +315,7 @@ fun FileReadBlock(event: FileReadEvent) {
             Spacer(Modifier.height(4.dp))
             Text(
                 text = event.text.take(500),
-                color = Color(0xFF999999),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
                 fontFamily = FontFamily.Monospace,
                 maxLines = 15,
@@ -331,20 +329,20 @@ fun FileReadBlock(event: FileReadEvent) {
 fun DoneCard(event: DoneEvent) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0A2A0A)),
-        shape = RoundedCornerShape(8.dp)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)),
+        shape = RoundedCornerShape(10.dp)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(
                 text = event.summary,
-                color = Color(0xFF66BB6A),
+                color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Medium,
                 fontSize = 14.sp
             )
             Spacer(Modifier.height(4.dp))
             Text(
                 text = "${event.total_tokens} tokens · ${event.total_calls} tools",
-                color = Color(0xFF666666),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp
             )
         }
@@ -355,12 +353,12 @@ fun DoneCard(event: DoneEvent) {
 fun ErrorCard(event: ErrorEvent) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF2A0A0A)),
-        shape = RoundedCornerShape(8.dp)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f)),
+        shape = RoundedCornerShape(10.dp)
     ) {
         Text(
             text = event.message,
-            color = Color(0xFFEF5350),
+            color = MaterialTheme.colorScheme.error,
             modifier = Modifier.padding(12.dp),
             fontSize = 14.sp
         )

@@ -1,27 +1,35 @@
 package com.brain.app.ui
 
-import androidx.compose.foundation.background
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brain.app.BrainSettings
 import com.brain.app.ModelInfo
 import com.brain.app.ProviderConfig
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -31,6 +39,8 @@ fun SettingsScreen(
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    val scrollState = rememberScrollState()
 
     var serverHost by remember { mutableStateOf(settings.serverHost) }
     var serverApiKey by remember { mutableStateOf(settings.serverApiKey) }
@@ -40,304 +50,349 @@ fun SettingsScreen(
     var embeddingModel by remember { mutableStateOf(settings.embeddingModel) }
 
     var testing by remember { mutableStateOf(false) }
-    var testResult by remember { mutableStateOf<String?>(null) }
-    var fetchingModels by remember { mutableStateOf(false) }
+    var testResult by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
     var models by remember { mutableStateOf<List<ModelInfo>>(emptyList()) }
+    var fetchingModels by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var saved by remember { mutableStateOf(false) }
+    var modelsFetchedForUrl by remember { mutableStateOf("") }
+
+    // Auto-fetch models when providerUrl + providerApiKey are filled
+    LaunchedEffect(providerUrl, providerApiKey) {
+        if (providerUrl.isNotBlank() && providerApiKey.isNotBlank()
+            && providerUrl != modelsFetchedForUrl
+        ) {
+            delay(1500) // debounce
+            if (providerUrl.isNotBlank() && providerApiKey.isNotBlank()) {
+                fetchingModels = true
+                settings.providerBaseUrl = providerUrl
+                settings.providerApiKey = providerApiKey
+                val result = settings.fetchModels()
+                models = result.getOrNull() ?: emptyList()
+                modelsFetchedForUrl = providerUrl
+                fetchingModels = false
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text("Settings", fontWeight = FontWeight.Medium) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, "Back", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Black,
-                    titleContentColor = Color.White,
+                    containerColor = MaterialTheme.colorScheme.surface
                 )
             )
         },
-        containerColor = Color.Black
+        containerColor = MaterialTheme.colorScheme.surface
     ) { padding ->
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(vertical = 16.dp)
+                .verticalScroll(scrollState)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // === Server Section ===
-            item {
-                SectionHeader("Server")
-            }
+            // ── Server ──
+            Text(
+                "Server",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold
+            )
 
-            item {
-                SettingsField("Host:Port", serverHost, "148.253.209.232:3000") { serverHost = it }
-            }
+            OutlinedTextField(
+                value = serverHost,
+                onValueChange = { serverHost = it; testResult = null },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Host:Port") },
+                placeholder = { Text("148.253.209.232:3000") },
+                leadingIcon = { Icon(Icons.Default.Dns, null, modifier = Modifier.size(20.dp)) },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                ),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            )
 
-            item {
-                SettingsField("API Key", serverApiKey, "server api key", isPassword = true) { serverApiKey = it }
-            }
+            OutlinedTextField(
+                value = serverApiKey,
+                onValueChange = { serverApiKey = it; testResult = null },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("API Key") },
+                placeholder = { Text("Bearer token") },
+                leadingIcon = { Icon(Icons.Default.Key, null, modifier = Modifier.size(20.dp)) },
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                ),
+            )
 
-            item {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Button(
-                        onClick = {
-                            testing = true
-                            testResult = null
-                            scope.launch {
-                                settings.serverHost = serverHost
-                                settings.serverApiKey = serverApiKey
-                                val result = settings.testConnection()
-                                testResult = result.getOrNull() ?: result.exceptionOrNull()?.message ?: "error"
-                                testing = false
-                            }
-                        },
-                        enabled = !testing && serverHost.isNotBlank() && serverApiKey.isNotBlank(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF1A1A2E),
-                            contentColor = MaterialTheme.colorScheme.primary
-                        ),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        if (testing) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
-                        } else {
-                            Text("Test Connection")
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilledTonalButton(
+                    onClick = {
+                        testing = true
+                        testResult = null
+                        scope.launch {
+                            settings.serverHost = serverHost
+                            settings.serverApiKey = serverApiKey
+                            val result = settings.testConnection()
+                            testResult = if (result.isSuccess) true to "Connected" else false to (result.exceptionOrNull()?.message ?: "error")
+                            testing = false
                         }
+                    },
+                    enabled = !testing && serverHost.isNotBlank() && serverApiKey.isNotBlank(),
+                    modifier = Modifier.height(36.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp)
+                ) {
+                    if (testing) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Test", style = MaterialTheme.typography.labelMedium)
                     }
                 }
-                if (testResult != null) {
-                    Spacer(Modifier.height(4.dp))
+
+                testResult?.let { (ok, msg) ->
                     Text(
-                        text = testResult!!,
-                        color = if (testResult == "connected") Color(0xFF66BB6A) else Color(0xFFEF5350),
-                        fontSize = 12.sp
+                        text = msg,
+                        color = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
             }
 
-            // === Provider Section ===
-            item {
-                Spacer(Modifier.height(8.dp))
-                SectionHeader("LLM Provider (OpenAI-compatible)")
-            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            item {
-                SettingsField("Base URL", providerUrl, "https://api.openai.com/v1") { providerUrl = it }
-            }
+            // ── Provider ──
+            Text(
+                "LLM Provider",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold
+            )
 
-            item {
-                SettingsField("API Key", providerApiKey, "provider api key", isPassword = true) { providerApiKey = it }
-            }
+            OutlinedTextField(
+                value = providerUrl,
+                onValueChange = { providerUrl = it; models = emptyList(); modelsFetchedForUrl = "" },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Base URL") },
+                placeholder = { Text("https://api.openai.com/v1") },
+                leadingIcon = { Icon(Icons.Default.Link, null, modifier = Modifier.size(20.dp)) },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                ),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            )
 
-            item {
+            OutlinedTextField(
+                value = providerApiKey,
+                onValueChange = { providerApiKey = it; models = emptyList(); modelsFetchedForUrl = "" },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("API Key") },
+                placeholder = { Text("sk-...") },
+                leadingIcon = { Icon(Icons.Default.VpnKey, null, modifier = Modifier.size(20.dp)) },
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                ),
+            )
+
+            // Models loading
+            AnimatedVisibility(
+                visible = fetchingModels,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Button(
-                        onClick = {
-                            fetchingModels = true
-                            scope.launch {
-                                settings.providerBaseUrl = providerUrl
-                                settings.providerApiKey = providerApiKey
-                                val result = settings.fetchModels()
-                                models = result.getOrNull() ?: emptyList()
-                                fetchingModels = false
-                            }
-                        },
-                        enabled = !fetchingModels && providerUrl.isNotBlank() && providerApiKey.isNotBlank(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF1A1A2E),
-                            contentColor = MaterialTheme.colorScheme.primary
-                        ),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        if (fetchingModels) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
-                        } else {
-                            Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Fetch Models")
-                        }
-                    }
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Text("Fetching models...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 
-            if (models.isNotEmpty()) {
-                item {
-                    Spacer(Modifier.height(4.dp))
-                    Text("Found ${models.size} models", color = Color(0xFF666666), fontSize = 12.sp)
-                }
+            // Model count
+            if (models.isNotEmpty() && !fetchingModels) {
+                Text(
+                    "${models.size} models available",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             // LLM Model
-            item {
-                SettingsField("LLM Model", llmModel, "gpt-4o-mini") { llmModel = it }
-            }
-
-            if (models.isNotEmpty()) {
-                item {
-                    ModelDropdown("LLM Model", models, llmModel) { llmModel = it }
-                }
-            }
+            ModelSelector(
+                label = "Chat Model",
+                models = models,
+                selected = llmModel,
+                onSelect = { llmModel = it },
+                placeholder = "gpt-4o-mini"
+            )
 
             // Embedding Model
-            item {
-                SettingsField("Embedding Model", embeddingModel, "text-embedding-3-small") { embeddingModel = it }
-            }
+            ModelSelector(
+                label = "Embedding Model",
+                models = models,
+                selected = embeddingModel,
+                onSelect = { embeddingModel = it },
+                placeholder = "text-embedding-3-small"
+            )
 
-            if (models.isNotEmpty()) {
-                item {
-                    ModelDropdown("Embedding Model", models, embeddingModel) { embeddingModel = it }
-                }
-            }
+            Spacer(Modifier.height(4.dp))
 
-            // Save
-            item {
-                Spacer(Modifier.height(8.dp))
-                Button(
-                    onClick = {
-                        saving = true
+            // Save button
+            Button(
+                onClick = {
+                    saving = true
+                    saved = false
+                    scope.launch {
+                        settings.serverHost = serverHost
+                        settings.serverApiKey = serverApiKey
+                        settings.providerBaseUrl = providerUrl
+                        settings.providerApiKey = providerApiKey
+                        settings.llmModel = llmModel
+                        settings.embeddingModel = embeddingModel
+                        settings.saveProviderConfig(ProviderConfig(
+                            base_url = providerUrl,
+                            api_key = providerApiKey,
+                            llm_model = llmModel,
+                            embedding_model = embeddingModel,
+                        ))
+                        saving = false
+                        saved = true
+                        delay(2000)
                         saved = false
-                        scope.launch {
-                            settings.serverHost = serverHost
-                            settings.serverApiKey = serverApiKey
-                            settings.providerBaseUrl = providerUrl
-                            settings.providerApiKey = providerApiKey
-                            settings.llmModel = llmModel
-                            settings.embeddingModel = embeddingModel
-
-                            val config = ProviderConfig(
-                                base_url = providerUrl,
-                                api_key = providerApiKey,
-                                llm_model = llmModel,
-                                embedding_model = embeddingModel,
-                            )
-                            settings.saveProviderConfig(config)
-                            saving = false
-                            saved = true
-                        }
-                    },
-                    enabled = !saving && serverHost.isNotBlank() && providerUrl.isNotBlank() && llmModel.isNotBlank() && embeddingModel.isNotBlank(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = Color.White
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    if (saving) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
-                    } else if (saved) {
-                        Icon(Icons.Default.Check, null)
-                        Spacer(Modifier.width(4.dp))
-                        Text("Saved")
-                    } else {
-                        Text("Save & Apply")
                     }
+                },
+                enabled = !saving && serverHost.isNotBlank() && providerUrl.isNotBlank()
+                        && llmModel.isNotBlank() && embeddingModel.isNotBlank(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                if (saving) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                } else if (saved) {
+                    Icon(Icons.Default.Check, null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Saved")
+                } else {
+                    Text("Save")
                 }
             }
+
+            Spacer(Modifier.height(32.dp))
         }
     }
 }
 
-@Composable
-fun SectionHeader(title: String) {
-    Text(
-        text = title,
-        color = MaterialTheme.colorScheme.primary,
-        fontWeight = FontWeight.Bold,
-        fontSize = 14.sp,
-        letterSpacing = 1.sp
-    )
-}
-
-@Composable
-fun SettingsField(
-    label: String,
-    value: String,
-    placeholder: String,
-    isPassword: Boolean = false,
-    onValueChange: (String) -> Unit
-) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        label = { Text(label, color = Color(0xFF888888)) },
-        placeholder = { Text(placeholder, color = Color(0xFF444444)) },
-        modifier = Modifier.fillMaxWidth(),
-        visualTransformation = if (isPassword) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = MaterialTheme.colorScheme.primary,
-            unfocusedBorderColor = Color(0xFF333333),
-            cursorColor = MaterialTheme.colorScheme.primary,
-            focusedTextColor = Color.White,
-            unfocusedTextColor = Color.White,
-        ),
-        singleLine = true
-    )
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ModelDropdown(
+private fun ModelSelector(
     label: String,
     models: List<ModelInfo>,
     selected: String,
-    onSelect: (String) -> Unit
+    onSelect: (String) -> Unit,
+    placeholder: String
 ) {
     var expanded by remember { mutableStateOf(false) }
 
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = !expanded }
-    ) {
+    Column {
         OutlinedTextField(
             value = selected,
-            onValueChange = {},
-            readOnly = true,
-            label = { Text("$label (from list)", color = Color(0xFF888888)) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .menuAnchor(),
+            onValueChange = onSelect,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(label) },
+            placeholder = { Text(placeholder) },
+            leadingIcon = { Icon(Icons.Default.SmartToy, null, modifier = Modifier.size(20.dp)) },
+            trailingIcon = {
+                if (models.isNotEmpty()) {
+                    IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = Color(0xFF333333),
-                cursorColor = MaterialTheme.colorScheme.primary,
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
             )
         )
 
-        ExposedDropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
+        AnimatedVisibility(
+            visible = expanded && models.isNotEmpty(),
+            enter = expandVertically(),
+            exit = shrinkVertically()
         ) {
-            models.forEach { model ->
-                DropdownMenuItem(
-                    text = {
-                        Column {
-                            Text(model.id, color = Color.White, fontSize = 14.sp)
-                            if (model.ownedBy.isNotEmpty()) {
-                                Text(model.ownedBy, color = Color(0xFF666666), fontSize = 11.sp)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp)
+                    .heightIn(max = 200.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    models.forEach { model ->
+                        val isSelected = model.id == selected
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onSelect(model.id)
+                                    expanded = false
+                                },
+                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                            else MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                                Text(
+                                    text = model.id,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (model.ownedBy.isNotEmpty()) {
+                                    Text(
+                                        text = model.ownedBy,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
-                    },
-                    onClick = {
-                        onSelect(model.id)
-                        expanded = false
                     }
-                )
+                }
             }
         }
     }
