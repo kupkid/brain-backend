@@ -46,12 +46,8 @@ impl Tool for TodoCreate {
         }).collect();
         let repo = TodoRepository::new(Arc::clone(&self.conn));
         let items = repo.create_batch(self.run_id, &tasks).map_err(|e| e.to_string())?;
-        Ok(ToolOutput::new(serde_json::json!({
-            "created": items.len(),
-            "tasks": items.iter().map(|i| serde_json::json!({
-                "id": i.task_id, "title": i.title, "status": i.status
-            })).collect::<Vec<_>>(),
-        }), ToolImportance::High))
+        let ids: Vec<&str> = items.iter().map(|i| i.task_id.as_str()).collect();
+        Ok(ToolOutput::text(&format!("created {}: {}", items.len(), ids.join(", ")), ToolImportance::High))
     }
 }
 
@@ -85,9 +81,7 @@ impl Tool for TodoUpdate {
         let repo = TodoRepository::new(Arc::clone(&self.conn));
         let item = repo.update_status(self.run_id, task_id, status).map_err(|e| e.to_string())?;
         match item {
-            Some(i) => Ok(ToolOutput::new(serde_json::json!({
-                "id": i.task_id, "title": i.title, "status": i.status
-            }), ToolImportance::High)),
+            Some(i) => Ok(ToolOutput::text(&format!("{} → {}", i.task_id, i.status), ToolImportance::High)),
             None => Err(format!("task '{task_id}' not found")),
         }
     }
@@ -113,10 +107,7 @@ impl Tool for TodoList {
     fn execute(&self, _args: &serde_json::Value) -> Result<ToolOutput, String> {
         let repo = TodoRepository::new(Arc::clone(&self.conn));
         let items = repo.list_by_run(self.run_id).map_err(|e| e.to_string())?;
-        Ok(ToolOutput::new(serde_json::json!({
-            "tasks": items.iter().map(|i| serde_json::json!({
-                "id": i.task_id, "title": i.title, "description": i.description, "status": i.status
-            })).collect::<Vec<_>>(),
-        }), ToolImportance::High))
+        let lines: Vec<String> = items.iter().map(|i| format!("[{}] {}: {}", i.status, i.task_id, i.title)).collect();
+        Ok(ToolOutput::text(&lines.join("\n"), ToolImportance::High))
     }
 }

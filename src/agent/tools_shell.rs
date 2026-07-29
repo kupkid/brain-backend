@@ -50,16 +50,21 @@ impl Tool for ShellExec {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let killed = !output.status.success() && stdout.is_empty() && stderr.is_empty();
-
-        let stdout_trimmed: &str = if stdout.len() > 2000 { &stdout[..2000] } else { &stdout };
-        let stderr_trimmed: &str = if stderr.len() > 1000 { &stderr[..1000] } else { &stderr };
-
-        Ok(ToolOutput::new(serde_json::json!({
-            "stdout": stdout_trimmed,
-            "stderr": stderr_trimmed,
-            "exit_code": output.status.code().unwrap_or(-1),
-            "killed": killed,
-        }), ToolImportance::Low))
+        let mut result = String::new();
+        if stdout.len() > 2000 {
+            result.push_str(&stdout[..2000]);
+            result.push_str("\n... (truncated)");
+        } else if !stdout.is_empty() {
+            result.push_str(&stdout);
+        }
+        if !stderr.is_empty() {
+            if !result.is_empty() { result.push_str("\n--- stderr ---\n"); }
+            let s = if stderr.len() > 500 { &stderr[..500] } else { &stderr };
+            result.push_str(s);
+        }
+        if result.is_empty() {
+            result = format!("exit {}", output.status.code().unwrap_or(-1));
+        }
+        Ok(ToolOutput::text(&result, ToolImportance::Low))
     }
 }

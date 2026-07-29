@@ -28,7 +28,7 @@ run_scenario() {
     : > "$rss_file"
     (
         while true; do
-            pid=$(pgrep -f "target/debug/agent" 2>/dev/null | head -1 || true)
+            pid=$(pgrep -f "agent" 2>/dev/null | head -1 || true)
             if [ -n "$pid" ] && [ -f "/proc/$pid/status" ]; then
                 rss=$(awk '/VmRSS/ {print $2}' "/proc/$pid/status" 2>/dev/null || echo "0")
                 echo "$rss" >> "$rss_file"

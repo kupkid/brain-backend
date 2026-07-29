@@ -32,15 +32,8 @@ impl Tool for BrowserNavigate {
             .build()
             .map_err(|e| format!("client error: {e}"))?;
         let response = client.get(url).send().map_err(|e| format!("request error: {e}"))?;
-        let status = response.status().as_u16();
         let body = response.text().map_err(|e| format!("body error: {e}"))?;
         let text = if body.len() > 8000 { &body[..8000] } else { &body };
-        Ok(ToolOutput::new(serde_json::json!({
-            "url": url,
-            "status": status,
-            "content": text,
-            "truncated": body.len() > 8000,
-            "note": "Stub: HTTP fetch. Future: Lightpanda headless browser."
-        }), ToolImportance::Normal))
+        Ok(ToolOutput::text(text, ToolImportance::Normal))
     }
 }

@@ -1,21 +1,30 @@
-=== Brain Agent Baseline Benchmark ===
-Date: 2026-07-29T08:37:14+00:00
+=== Brain Agent Optimized Benchmark ===
+Date: 2026-07-29T09:12:37+00:00
+Optimizations: compact tool output, sliding window (6), system prompt dedup
 
 --- simple ---
-  Time: 2373ms
-  Tokens: 1731
+  Time: 2090ms
+  Tokens: 1593
   LLM calls: 3
-  Peak RSS: 1936KB
+  Peak RSS: 3204KB
 
 --- medium ---
-  Time: 14736ms
-  Tokens: 13269
+  Time: 13570ms
+  Tokens: 12166
   LLM calls: 19
-  Peak RSS: 1936KB
+  Peak RSS: 3204KB
 
 --- hard ---
-  Time: 7419ms
-  Tokens: 6819
-  LLM calls: 10
-  Peak RSS: 1892KB
+  Time: 3714ms
+  Tokens: 3186
+  LLM calls: 5
+  Peak RSS: 3044KB
 
+=== Comparison vs Baseline ===
+             Baseline    Optimized   Delta
+Simple       1731 tok    1593 tok    -8%
+             2373ms      2090ms      -12%
+Medium       13269 tok   12166 tok   -8%
+             14736ms     13570ms     -8%
+Hard         6819 tok    3186 tok    -53%
+             7419ms      3714ms      -50%

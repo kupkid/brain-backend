@@ -43,6 +43,8 @@ pub struct ToolCallResult {
 }
 
 impl AgentLoop {
+    const MAX_TOOL_HISTORY: usize = 6;
+
     pub fn new(
         llm: Arc<CohereLlm>,
         embedding: Arc<dyn EmbeddingProvider>,
@@ -87,6 +89,7 @@ impl AgentLoop {
 
         let mut all_results = Vec::new();
         let mut total_tokens = 0;
+        let mut tool_call_count = 0u32;
 
         loop {
             let result = match self.llm.complete_with_tools(&messages, Some(4096), Some(0.7)).await {
@@ -103,7 +106,6 @@ impl AgentLoop {
             total_tokens += result.tokens_used;
 
             if !result.tool_calls.is_empty() {
-                // Add assistant message with tool calls (Cohere needs tool_calls in message)
                 let tool_calls_json: Vec<serde_json::Value> = result.tool_calls.iter().map(|tc| {
                     serde_json::json!({
                         "id": tc.id,
@@ -130,13 +132,15 @@ impl AgentLoop {
 
                     let content_for_llm = match &output.summary {
                         Some(s) => s.clone(),
-                        None => {
-                            let s = output.result.to_string();
-                            if s.len() > 4000 { s[..4000].to_string() } else { s }
+                        None => match &output.result {
+                            serde_json::Value::String(s) => s.clone(),
+                            other => {
+                                let s = other.to_string();
+                                if s.len() > 4000 { s[..4000].to_string() } else { s }
+                            }
                         }
                     };
 
-                    // Tool result messages must include tool_call_id for Cohere API
                     messages.push(LlmMessage {
                         role: "tool".to_string(),
                         content: content_for_llm,
@@ -148,6 +152,17 @@ impl AgentLoop {
                         name: tc.name.clone(),
                         output,
                     });
+                    tool_call_count += 1;
+                }
+
+                // Sliding window: collapse old tool calls to save context
+                if tool_call_count as usize > Self::MAX_TOOL_HISTORY {
+                    self.collapse_old_tool_calls(&mut messages);
+                }
+
+                // After first call, replace system prompt with short continuation
+                if messages[0].role == "system" {
+                    messages[0].content = "Continue. Use tools as needed.".to_string();
                 }
             } else {
                 self.store_memory(user_message, &result.content).await;
@@ -158,6 +173,45 @@ impl AgentLoop {
                 };
             }
         }
+    }
+
+    fn collapse_old_tool_calls(&self, messages: &mut Vec<LlmMessage>) {
+        // Find the system message (index 0), then collapse everything between
+        // system and the last MAX_TOOL_HISTORY tool-call pairs into a summary.
+        // Keep: system, user, last MAX_TOOL_HISTORY*2 messages (assistant+tool pairs), plus any new ones
+        let system_len = 1; // system message at index 0
+        let user_len = if messages.len() > 1 && messages[1].role == "user" { 1 } else { 0 };
+        let keep_from = system_len + user_len; // start of prunable region
+
+        // Count tool result messages from the end
+        let mut tool_result_count = 0usize;
+        for msg in messages.iter().rev() {
+            if msg.role == "tool" || msg.role == "assistant" {
+                tool_result_count += 1;
+            } else {
+                break;
+            }
+        }
+
+        if tool_result_count <= Self::MAX_TOOL_HISTORY * 2 { return; }
+
+        let collapse_end = messages.len() - Self::MAX_TOOL_HISTORY * 2;
+        if collapse_end <= keep_from { return; }
+
+        // Count how many tool calls we're collapsing
+        let collapsed_count = messages[keep_from..collapse_end].iter()
+            .filter(|m| m.role == "tool")
+            .count();
+
+        let summary = LlmMessage {
+            role: "system".to_string(),
+            content: format!("[{collapsed_count} tool results completed]"),
+            tool_call_id: None,
+            tool_calls: None,
+        };
+
+        messages.drain(keep_from..collapse_end);
+        messages.insert(keep_from, summary);
     }
 
     fn build_system_prompt(&self) -> String {

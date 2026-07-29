@@ -2,8 +2,6 @@ use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
 use brain_backend::agent::tools;
 use brain_backend::agent::tool_trait::Tool;
-use brain_backend::agent::config::AgentConfig;
-use brain_backend::db;
 
 fn setup_db() -> Arc<Mutex<Connection>> {
     unsafe {
@@ -45,25 +43,29 @@ fn test_todo_create_update_list() {
             {"id": "t3", "title": "Verify", "description": "Check output"}
         ]
     })).unwrap();
-    assert_eq!(result.result["created"], 3);
+    let text = result.result.as_str().unwrap();
+    assert!(text.contains("created 3"));
+    assert!(text.contains("t1"));
+    assert!(text.contains("t3"));
     assert_eq!(result.importance, brain_backend::agent::tool_trait::ToolImportance::High);
 
     // List todos
     let result = tb.call("todo_list", &serde_json::json!({})).unwrap();
-    assert_eq!(result.result["tasks"][0]["status"], "pending");
-    assert_eq!(result.result["tasks"].as_array().unwrap().len(), 3);
+    let list_text = result.result.as_str().unwrap();
+    assert!(list_text.contains("pending"));
+    assert_eq!(list_text.lines().count(), 3);
 
     // Update t1 to in_progress
     let result = tb.call("todo_update", &serde_json::json!({
         "task_id": "t1", "status": "in_progress"
     })).unwrap();
-    assert_eq!(result.result["status"], "in_progress");
+    assert!(result.result.as_str().unwrap().contains("in_progress"));
 
     // Update t1 to done
     let result = tb.call("todo_update", &serde_json::json!({
         "task_id": "t1", "status": "done"
     })).unwrap();
-    assert_eq!(result.result["status"], "done");
+    assert!(result.result.as_str().unwrap().contains("done"));
 
     // Verify via API-style query
     let c = conn.lock().unwrap();
@@ -88,27 +90,28 @@ fn test_file_ops() {
         "path": "hello.py",
         "content": "print('hello world')"
     })).unwrap();
-    assert!(result.result["bytes_written"].as_u64().unwrap() > 0);
+    let text = result.result.as_str().unwrap();
+    assert!(text.contains("ok"));
+    assert!(text.contains("bytes"));
 
     // Read file
     let result = tb.call("read_file", &serde_json::json!({
         "path": "hello.py"
     })).unwrap();
-    assert_eq!(result.result["content"], "print('hello world')");
-    assert_eq!(result.result["lines"], 1);
+    assert_eq!(result.result.as_str().unwrap(), "print('hello world')");
 
     // List dir
     let result = tb.call("list_dir", &serde_json::json!({
         "path": "."
     })).unwrap();
-    assert!(result.result["entries"].as_array().unwrap().len() > 0);
+    assert!(result.result.as_str().unwrap().contains("hello.py"));
 
     // Grep
     let result = tb.call("grep", &serde_json::json!({
         "path": "hello.py",
         "pattern": "print"
     })).unwrap();
-    assert_eq!(result.result["matches"][0]["line"], 1);
+    assert!(result.result.as_str().unwrap().contains("L1:"));
 
     // Path traversal blocked
     let result = tb.call("read_file", &serde_json::json!({
@@ -130,7 +133,7 @@ fn test_shell_exec() {
     let result = tb.call("shell_exec", &serde_json::json!({
         "command": "echo hello"
     })).unwrap();
-    let stdout = result.result["stdout"].as_str().unwrap();
+    let stdout = result.result.as_str().unwrap();
     assert!(stdout.contains("hello"));
 
     // Deny list
@@ -151,11 +154,8 @@ fn test_browser_navigate() {
         "url": "https://httpbin.org/get"
     }));
     // Internet may be unavailable — just check it returns a result
-    match result {
-        Ok(output) => {
-            assert!(output.result["status"].as_u64().is_some());
-        }
-        Err(_) => {} // Network unavailable in test env
+    if let Ok(output) = result {
+        assert!(!output.result.as_str().unwrap().is_empty());
     }
 }
 

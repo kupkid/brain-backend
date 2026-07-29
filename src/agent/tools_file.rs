@@ -51,13 +51,7 @@ impl Tool for ReadFile {
         let path = args["path"].as_str().ok_or("missing 'path'")?;
         let full = self.inner.validate_path(path)?;
         let content = std::fs::read_to_string(&full).map_err(|e| format!("read error: {e}"))?;
-        let lines = content.lines().count();
-        let result = serde_json::json!({
-            "content": content,
-            "lines": lines,
-            "path": path,
-        });
-        Ok(ToolOutput::new(result, ToolImportance::Normal))
+        Ok(ToolOutput::text(&content, ToolImportance::Normal))
     }
 }
 
@@ -82,11 +76,7 @@ impl Tool for WriteFile {
             std::fs::create_dir_all(parent).map_err(|e| format!("mkdir error: {e}"))?;
         }
         std::fs::write(&full, content).map_err(|e| format!("write error: {e}"))?;
-        let result = serde_json::json!({
-            "path": path,
-            "bytes_written": content.len(),
-        });
-        Ok(ToolOutput::new(result, ToolImportance::Normal))
+        Ok(ToolOutput::text(&format!("ok ({bytes} bytes)", bytes = content.len()), ToolImportance::Normal))
     }
 }
 
@@ -109,18 +99,14 @@ impl Tool for ListDir {
         } else {
             self.inner.validate_path(path)?
         };
-        let mut entries = Vec::new();
+        let mut lines = Vec::new();
         for entry in std::fs::read_dir(&full).map_err(|e| format!("readdir error: {e}"))? {
             let entry = entry.map_err(|e| format!("entry error: {e}"))?;
             let meta = entry.metadata().map_err(|e| format!("meta error: {e}"))?;
-            let kind = if meta.is_dir() { "dir" } else { "file" };
-            entries.push(serde_json::json!({
-                "name": entry.file_name().to_string_lossy(),
-                "type": kind,
-                "size": meta.len(),
-            }));
+            let prefix = if meta.is_dir() { "d " } else { "f " };
+            lines.push(format!("{}{}", prefix, entry.file_name().to_string_lossy()));
         }
-        Ok(ToolOutput::new(serde_json::json!({"entries": entries}), ToolImportance::Normal))
+        Ok(ToolOutput::text(&lines.join("\n"), ToolImportance::Normal))
     }
 }
 
@@ -143,11 +129,15 @@ impl Tool for GrepFile {
         let full = self.inner.validate_path(path)?;
         let content = std::fs::read_to_string(&full).map_err(|e| format!("read error: {e}"))?;
         let re = regex::Regex::new(pattern).map_err(|e| format!("invalid regex: {e}"))?;
-        let matches: Vec<serde_json::Value> = content.lines()
+        let matches: Vec<String> = content.lines()
             .enumerate()
             .filter(|(_, line)| re.is_match(line))
-            .map(|(i, line)| serde_json::json!({"line": i + 1, "text": line}))
+            .map(|(i, line)| format!("L{}: {}", i + 1, line))
             .collect();
-        Ok(ToolOutput::new(serde_json::json!({"matches": matches}), ToolImportance::Normal))
+        if matches.is_empty() {
+            Ok(ToolOutput::text("no matches", ToolImportance::Normal))
+        } else {
+            Ok(ToolOutput::text(&matches.join("\n"), ToolImportance::Normal))
+        }
     }
 }
