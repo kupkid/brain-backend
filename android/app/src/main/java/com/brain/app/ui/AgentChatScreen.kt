@@ -492,7 +492,7 @@ fun ModelChipsBar(models: List<String>, selected: String, onSelect: (String) -> 
                 shape = RoundedCornerShape(16.dp),
                 color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                 else MaterialTheme.colorScheme.surfaceContainerHigh,
-                border = if (isSelected) ButtonDefaults.outlinedButtonBorder(enabled = true) else null
+                border = if (isSelected) ButtonDefaults.outlinedButtonBorder() else null
             ) {
                 Text(
                     shortName,
@@ -546,7 +546,7 @@ fun InputBar(
                 ),
                 shape = RoundedCornerShape(24.dp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = onSend),
+                keyboardActions = KeyboardActions(onSend = { onSend() }),
                 maxLines = 5,
             )
             FilledIconButton(

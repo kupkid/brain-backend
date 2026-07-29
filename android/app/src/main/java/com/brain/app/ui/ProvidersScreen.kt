@@ -25,6 +25,8 @@ import androidx.compose.ui.unit.sp
 import com.brain.app.BrainSettings
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -134,7 +136,7 @@ fun ProvidersScreen(
                 val saved = obj.optInt("saved", 0)
                 val total = obj.optInt("total_fetched", 0)
                 statusMessage = "Fetched $total models, saved $saved"
-                fetchModelsId = null
+                fetchingModelsId = null
                 loadProviders()
             } catch (e: Exception) {
                 statusMessage = "Fetch failed: ${e.message}"
@@ -550,4 +552,4 @@ private val okHttpClient = okhttp3.OkHttpClient.Builder()
     .build()
 
 private fun String.toRequestBody(mediaType: String): okhttp3.RequestBody =
-    okhttp3.RequestBody.create(okhttp3.MediaType.parse(mediaType), this)
+    this.toRequestBody(mediaType.toMediaType())

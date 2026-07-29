@@ -170,15 +170,6 @@ fun ModelEditorScreen(
                 selectedTabIndex = selectedTab,
                 containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = MaterialTheme.colorScheme.primary,
-                indicator = { tabPositions ->
-                    if (selectedTab < tabPositions.size) {
-                        TabRowDefaults.SecondaryIndicator(
-                            modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                            height = 2.dp,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                },
             ) {
                 tabs.forEachIndexed { index, title ->
                     Tab(

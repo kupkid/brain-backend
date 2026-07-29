@@ -53,8 +53,8 @@ class AgentViewModel(
     fun fetchModels() {
         viewModelScope.launch {
             try {
-                val models = settings.fetchModels()
-                _availableModels.value = models
+                val models = settings.fetchModels().getOrNull() ?: emptyList()
+                _availableModels.value = models.map { it.id }
             } catch (_: Exception) {}
         }
     }
