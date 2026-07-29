@@ -9,10 +9,9 @@ use brain_backend::api::AppState;
 use brain_backend::config::AppConfig;
 use brain_backend::db;
 use brain_backend::provider::cohere_embedding::CohereEmbedding;
-use brain_backend::provider::cohere_llm::CohereLlm;
 use brain_backend::provider::embedding::EmbeddingProvider;
 use brain_backend::provider::llm::LlmProvider;
-use brain_backend::provider::openai_compat::OpenAiCompatLlm;
+use brain_backend::settings::providers::ProvidersRepository;
 use brain_backend::vault;
 
 #[tokio::main]
@@ -75,29 +74,71 @@ async fn main() -> Result<()> {
         .expect("COHERE_API_KEY or LLM_API_KEY required for embeddings");
     let embedding: Arc<dyn EmbeddingProvider> = Arc::new(CohereEmbedding::new(emb_key, None));
 
-    // Create LLM factory (closure that creates provider + attaches tools)
-    let provider_type = std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "cohere".to_string());
-    let llm_factory: brain_backend::ws_agent::LlmFactory = match provider_type.as_str() {
-        "openai_compat" => {
-            let api_key = std::env::var("LLM_API_KEY").expect("LLM_API_KEY required");
-            let model = std::env::var("LLM_MODEL").expect("LLM_MODEL required");
-            let base_url = std::env::var("LLM_BASE_URL").expect("LLM_BASE_URL required");
-            tracing::info!("WS agent LLM: OpenAI-compatible ({model}, {base_url})");
-            Box::new(move |tools| {
-                let provider =
-                    OpenAiCompatLlm::new(api_key.clone(), model.clone(), base_url.clone());
-                Arc::new(provider.with_tools(tools)) as Arc<dyn LlmProvider>
-            })
-        }
-        _ => {
-            let api_key = std::env::var("COHERE_API_KEY").expect("COHERE_API_KEY required");
-            tracing::info!("WS agent LLM: Cohere (command-a-plus-05-2026)");
-            Box::new(move |tools| {
-                let provider = CohereLlm::new(api_key.clone(), None, None);
-                Arc::new(provider.with_tools(tools)) as Arc<dyn LlmProvider>
-            })
-        }
-    };
+    // Create LLM factory — reads provider from DB (providers table)
+    let llm_factory: brain_backend::ws_agent::LlmFactory = Box::new(
+        move |conn: &rusqlite::Connection, master_key: &[u8; 32], tools: serde_json::Value| {
+            let providers_repo = ProvidersRepository::new(conn);
+            // Try default provider first, then first enabled provider
+            let provider = providers_repo
+                .get_default()
+                .ok()
+                .flatten()
+                .or_else(|| {
+                    providers_repo
+                        .list()
+                        .ok()
+                        .and_then(|ps| ps.into_iter().find(|p| p.enabled))
+                });
+
+            match provider {
+                Some(p) => {
+                    let api_key = providers_repo
+                        .get_api_key(master_key, p.id)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default();
+                    tracing::info!(
+                        "WS agent LLM: provider='{}' type='{}' base_url='{}'",
+                        p.name,
+                        p.provider_type,
+                        p.base_url
+                    );
+                    match p.provider_type.as_str() {
+                        "openai" | "openai_compat" => {
+                            let provider = brain_backend::provider::openai_compat::OpenAiCompatLlm::new(
+                                api_key, "gpt-4o".to_string(), p.base_url,
+                            );
+                            Arc::new(provider.with_tools(tools)) as Arc<dyn LlmProvider>
+                        }
+                        "cohere" => {
+                            let provider = brain_backend::provider::cohere_llm::CohereLlm::new(
+                                api_key, None, None,
+                            );
+                            Arc::new(provider.with_tools(tools)) as Arc<dyn LlmProvider>
+                        }
+                        _ => {
+                            // Default to OpenAI-compatible
+                            let provider = brain_backend::provider::openai_compat::OpenAiCompatLlm::new(
+                                api_key, "gpt-4o".to_string(), p.base_url,
+                            );
+                            Arc::new(provider.with_tools(tools)) as Arc<dyn LlmProvider>
+                        }
+                    }
+                }
+                None => {
+                    tracing::warn!("no provider configured — falling back to env vars");
+                    // Fallback to env vars
+                    let api_key = std::env::var("COHERE_API_KEY")
+                        .or_else(|_| std::env::var("LLM_API_KEY"))
+                        .unwrap_or_default();
+                    let provider = brain_backend::provider::cohere_llm::CohereLlm::new(
+                        api_key, None, None,
+                    );
+                    Arc::new(provider.with_tools(tools)) as Arc<dyn LlmProvider>
+                }
+            }
+        },
+    );
 
     let api_key = std::env::var("BRAIN_API_KEY").ok();
 

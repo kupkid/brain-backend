@@ -1063,7 +1063,10 @@ async fn ws_agent_handler(
     let factory = Arc::clone(&state.llm_factory);
     let embedding = Arc::clone(&state.embedding);
     let data_dir = state.config.data_dir.clone();
-    ws.on_upgrade(move |socket| crate::ws_agent::run_agent_ws(socket, factory, embedding, data_dir))
+    let master_key = *state.master_key.lock().unwrap();
+    ws.on_upgrade(move |socket| {
+        crate::ws_agent::run_agent_ws(socket, factory, embedding, data_dir, master_key)
+    })
 }
 
 // === WebSocket — Real-time Agent Events ===

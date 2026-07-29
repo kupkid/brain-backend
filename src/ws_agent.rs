@@ -20,13 +20,18 @@ pub struct WsTaskRequest {
     pub mode: Option<String>,
 }
 
-pub type LlmFactory = Box<dyn Fn(serde_json::Value) -> Arc<dyn LlmProvider> + Send + Sync>;
+pub type LlmFactory = Box<
+    dyn Fn(&rusqlite::Connection, &[u8; 32], serde_json::Value) -> Arc<dyn LlmProvider>
+        + Send
+        + Sync,
+>;
 
 pub async fn run_agent_ws(
     mut socket: WebSocket,
     llm_factory: Arc<LlmFactory>,
     embedding: Arc<dyn EmbeddingProvider>,
     data_dir: std::path::PathBuf,
+    master_key: [u8; 32],
 ) {
     // 1. Wait for task message from client
     let task_msg = match socket.next().await {
@@ -111,7 +116,7 @@ pub async fn run_agent_ws(
     let toolbox = tools::build_default_tools(&conn, run_id, workspace, config.tool_timeout_seconds);
     let tools_schema = toolbox.schema();
 
-    let llm = llm_factory(tools_schema);
+    let llm = llm_factory(&conn.lock().unwrap(), &master_key, tools_schema);
     let (tx, mut rx) = mpsc::channel::<WsAgentEvent>(64);
 
     let agent =
