@@ -2,9 +2,8 @@ use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
 use tracing::{info, warn};
 
-use crate::provider::llm::LlmMessage;
+use crate::provider::llm::{LlmMessage, LlmProvider};
 use crate::provider::embedding::EmbeddingProvider;
-use crate::provider::cohere_llm::CohereLlm;
 use crate::memory::MemoryRepository;
 use crate::memory::repository::NewMemory;
 use crate::memory::heuristic;
@@ -13,7 +12,7 @@ use super::tools::ToolBox;
 use super::tool_trait::{ToolOutput, ToolImportance};
 
 pub struct AgentLoop {
-    llm: Arc<CohereLlm>,
+    llm: Arc<dyn LlmProvider>,
     #[allow(dead_code)]
     embedding: Arc<dyn EmbeddingProvider>,
     conn: Arc<Mutex<Connection>>,
@@ -46,7 +45,7 @@ impl AgentLoop {
     const MAX_TOOL_HISTORY: usize = 6;
 
     pub fn new(
-        llm: Arc<CohereLlm>,
+        llm: Arc<dyn LlmProvider>,
         embedding: Arc<dyn EmbeddingProvider>,
         conn: Arc<Mutex<Connection>>,
         tools: ToolBox,
@@ -87,12 +86,14 @@ impl AgentLoop {
             tool_calls: None,
         });
 
+        info!("User message ({} chars): {}", user_message.len(), if user_message.len() > 200 { format!("{}...", &user_message[..200]) } else { user_message.to_string() });
+
         let mut all_results = Vec::new();
         let mut total_tokens = 0;
         let mut tool_call_count = 0u32;
 
         loop {
-            let result = match self.llm.complete_with_tools(&messages, Some(4096), Some(0.7)).await {
+            let result = match self.llm.complete_with_tools(&messages, Some(8192), Some(0.7)).await {
                 Ok(r) => r,
                 Err(e) => {
                     warn!("LLM error: {e}");
@@ -215,7 +216,43 @@ impl AgentLoop {
     }
 
     fn build_system_prompt(&self) -> String {
-        "You are a helpful AI agent with tools for file operations, shell commands, web browsing, and task management. Use tools when needed to accomplish tasks. Think step by step. Explain what you're doing.".to_string()
+        let now = chrono::Utc::now();
+        let local = now + chrono::Duration::hours(3); // MSK
+        let time_str = local.format("%H:%M").to_string();
+        let weekday = match local.format("%A").to_string().as_str() {
+            "Monday" => "понедельник",
+            "Tuesday" => "вторник",
+            "Wednesday" => "среда",
+            "Thursday" => "четверг",
+            "Friday" => "пятница",
+            "Saturday" => "суббота",
+            "Sunday" => "воскресенье",
+            _ => "",
+        };
+        let month = match local.format("%B").to_string().as_str() {
+            "January" => "января", "February" => "февраля", "March" => "марта",
+            "April" => "апреля", "May" => "мая", "June" => "июня",
+            "July" => "июля", "August" => "августа", "September" => "сентября",
+            "October" => "октября", "November" => "ноября", "December" => "декабря",
+            _ => "",
+        };
+        let day = local.format("%d").to_string().trim_start_matches('0').to_string();
+
+        format!(
+            "Ты — AI-агент Brain. Сегодня {weekday}, {day} {month} {year} года, {time} MSK.\n\n\
+            Ты работаешь в терминале. У тебя есть инструменты для работы с файлами, shell, браузером и задачами.\n\n\
+            Принципы:\n\
+            - Действуй решительно. Выполняй задачу целиком, не фрагментами.\n\
+            - Планируй через todo_create, отмечай прогресс через todo_update.\n\
+            - Не спрашивай подтверждений — делай.\n\
+            - Не создавай лишних файлов.\n\
+            - Отвечай на языке пользователя. Будь краток.",
+            weekday = weekday,
+            day = day,
+            month = month,
+            year = now.format("%Y"),
+            time = time_str,
+        )
     }
 
     fn prune_history(&self, history: &[AgentMessage]) -> Vec<AgentMessage> {

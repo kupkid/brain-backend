@@ -1,12 +1,11 @@
 use async_trait::async_trait;
-use futures::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use super::llm::{LlmError, LlmMessage, LlmProvider, LlmResponse, LlmToolCall, LlmToolResult, StreamChunk, StructuredOutput};
+use super::llm::{LlmError, LlmMessage, LlmProvider, LlmResponse, LlmToolCall, LlmToolResult, StructuredOutput};
 
-pub struct CohereLlm {
+pub struct OpenAiCompatLlm {
     client: Client,
     api_key: String,
     model: String,
@@ -24,8 +23,6 @@ struct ChatRequest {
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    stream: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -36,20 +33,6 @@ struct ChatMessage {
     tool_calls: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_call_id: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct RawToolCall {
-    id: String,
-    #[serde(rename = "type")]
-    call_type: String,
-    function: RawFunction,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct RawFunction {
-    name: String,
-    arguments: String,
 }
 
 #[derive(Deserialize)]
@@ -63,10 +46,24 @@ struct ChatChoice {
     message: ResponseMessage,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 struct ResponseMessage {
     content: Option<String>,
     tool_calls: Option<Vec<RawToolCall>>,
+}
+
+#[derive(Deserialize, Clone)]
+struct RawToolCall {
+    id: String,
+    #[serde(rename = "type")]
+    _call_type: String,
+    function: RawFunction,
+}
+
+#[derive(Deserialize, Clone)]
+struct RawFunction {
+    name: String,
+    arguments: String,
 }
 
 #[derive(Deserialize)]
@@ -74,30 +71,13 @@ struct ChatUsage {
     total_tokens: Option<usize>,
 }
 
-#[derive(Deserialize)]
-struct StreamResponse {
-    choices: Vec<StreamChoice>,
-}
-
-#[derive(Deserialize)]
-struct StreamChoice {
-    delta: Option<StreamDelta>,
-    #[allow(dead_code)]
-    finish_reason: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct StreamDelta {
-    content: Option<String>,
-}
-
-impl CohereLlm {
-    pub fn new(api_key: String, model: Option<String>, base_url: Option<String>) -> Self {
+impl OpenAiCompatLlm {
+    pub fn new(api_key: String, model: String, base_url: String) -> Self {
         Self {
             client: Client::new(),
             api_key,
-            model: model.unwrap_or_else(|| "command-a-plus-05-2026".to_string()),
-            base_url: base_url.unwrap_or_else(|| "https://api.cohere.ai/compatibility/v1".to_string()),
+            model,
+            base_url,
             tools_json: None,
         }
     }
@@ -109,13 +89,6 @@ impl CohereLlm {
 
     async fn send_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         let url = format!("{}/chat/completions", self.base_url);
-        // Debug: log the request body
-        let body = serde_json::to_string_pretty(&request).unwrap_or_default();
-        // Log just the messages array structure
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body)
-            && let Some(msgs) = v.get("messages") {
-            info!("request messages: {}", serde_json::to_string(msgs).unwrap_or_default());
-        }
         let response = self
             .client
             .post(&url)
@@ -137,10 +110,8 @@ impl CohereLlm {
             .await
             .map_err(|e| LlmError::Provider(format!("parse error: {e}")))
     }
-}
 
-impl CohereLlm {
-    pub async fn complete_with_tools_raw(
+    async fn complete_with_tools_raw(
         &self,
         messages: &[LlmMessage],
         max_tokens: Option<usize>,
@@ -162,7 +133,6 @@ impl CohereLlm {
             max_tokens,
             temperature,
             tools: self.tools_json.clone(),
-            stream: None,
         };
 
         let response = self.send_request(request).await?;
@@ -190,7 +160,7 @@ impl CohereLlm {
 }
 
 #[async_trait]
-impl LlmProvider for CohereLlm {
+impl LlmProvider for OpenAiCompatLlm {
     async fn complete(
         &self,
         messages: &[LlmMessage],
@@ -212,87 +182,6 @@ impl LlmProvider for CohereLlm {
         temperature: Option<f32>,
     ) -> Result<LlmToolResult, LlmError> {
         self.complete_with_tools_raw(messages, max_tokens, temperature).await
-    }
-
-    async fn complete_stream(
-        &self,
-        messages: &[LlmMessage],
-        max_tokens: Option<usize>,
-        temperature: Option<f32>,
-        tx: tokio::sync::mpsc::Sender<StreamChunk>,
-    ) -> Result<LlmResponse, LlmError> {
-        let chat_messages: Vec<ChatMessage> = messages
-            .iter()
-            .map(|m| ChatMessage {
-                role: m.role.clone(),
-                content: Some(m.content.clone()),
-                tool_calls: m.tool_calls.clone(),
-                tool_call_id: m.tool_call_id.clone(),
-            })
-            .collect();
-
-        let url = format!("{}/chat/completions", self.base_url);
-        let response = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&serde_json::json!({
-                "model": self.model,
-                "messages": chat_messages,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "stream": true,
-            }))
-            .send()
-            .await
-            .map_err(|e| LlmError::Provider(format!("stream request failed: {e}")))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(LlmError::Provider(format!("HTTP {status}: {body}")));
-        }
-
-        let mut stream = response.bytes_stream();
-        let mut full_content = String::new();
-
-        while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result.map_err(|e| LlmError::Provider(format!("stream read error: {e}")))?;
-            let text = String::from_utf8_lossy(&chunk);
-
-            for line in text.lines() {
-                let line = line.trim();
-                if line.is_empty() || !line.starts_with("data: ") { continue; }
-                let data = &line[6..];
-                if data == "[DONE]" { continue; }
-
-                if let Ok(sr) = serde_json::from_str::<StreamResponse>(data)
-                    && let Some(choice) = sr.choices.first()
-                    && let Some(delta) = &choice.delta
-                    && let Some(content) = &delta.content
-                {
-                    full_content.push_str(content);
-                    let _ = tx.send(StreamChunk {
-                        delta: content.clone(),
-                        finished: false,
-                        tokens_used: None,
-                    }).await;
-                }
-            }
-        }
-
-        let _ = tx.send(StreamChunk {
-            delta: String::new(),
-            finished: true,
-            tokens_used: Some(0),
-        }).await;
-
-        Ok(LlmResponse {
-            content: full_content,
-            tokens_used: 0,
-            model: self.model.clone(),
-        })
     }
 
     async fn structured_complete(
@@ -320,14 +209,13 @@ impl LlmProvider for CohereLlm {
             model: self.model.clone(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: Some("hi".to_string()),
+                content: Some("say ok".to_string()),
                 tool_calls: None,
                 tool_call_id: None,
             }],
-            max_tokens: Some(5),
+            max_tokens: Some(256),
             temperature: None,
             tools: None,
-            stream: None,
         };
 
         match self.send_request(request).await {

@@ -9,6 +9,11 @@ impl FileOps {
         Self { workspace_dir }
     }
 
+    fn ws_root(&self) -> std::path::PathBuf {
+        self.workspace_dir.canonicalize().unwrap_or_else(|_| self.workspace_dir.clone())
+    }
+
+    /// Validate path for read — parent must exist
     fn validate_path(&self, path: &str) -> Result<std::path::PathBuf, String> {
         if path.contains("..") {
             return Err("path traversal rejected".to_string());
@@ -16,12 +21,29 @@ impl FileOps {
         if std::path::Path::new(path).is_absolute() {
             return Err("absolute path rejected".to_string());
         }
-        // Resolve workspace_dir to absolute first
-        let ws_root = self.workspace_dir.canonicalize().unwrap_or_else(|_| self.workspace_dir.clone());
+        let ws_root = self.ws_root();
         let full = ws_root.join(path);
-        // For write: file may not exist yet, so just check parent
-        let parent = full.parent().unwrap_or(&full);
-        let _ = parent.canonicalize().map_err(|e| format!("parent dir error: {e}"))?;
+        let canonical = full.canonicalize().map_err(|e| format!("path error: {e}"))?;
+        if !canonical.starts_with(&ws_root) {
+            return Err("path escapes workspace".to_string());
+        }
+        Ok(canonical)
+    }
+
+    /// Validate path for write — creates parent dirs if needed
+    fn validate_path_for_write(&self, path: &str) -> Result<std::path::PathBuf, String> {
+        if path.contains("..") {
+            return Err("path traversal rejected".to_string());
+        }
+        if std::path::Path::new(path).is_absolute() {
+            return Err("absolute path rejected".to_string());
+        }
+        let ws_root = self.ws_root();
+        let full = ws_root.join(path);
+        // Create parent dirs before canonicalize
+        if let Some(parent) = full.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("mkdir error: {e}"))?;
+        }
         let canonical = full.canonicalize().unwrap_or(full);
         if !canonical.starts_with(&ws_root) {
             return Err("path escapes workspace".to_string());
@@ -71,10 +93,7 @@ impl Tool for WriteFile {
     fn execute(&self, args: &serde_json::Value) -> Result<ToolOutput, String> {
         let path = args["path"].as_str().ok_or("missing 'path'")?;
         let content = args["content"].as_str().ok_or("missing 'content'")?;
-        let full = self.inner.validate_path(path)?;
-        if let Some(parent) = full.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("mkdir error: {e}"))?;
-        }
+        let full = self.inner.validate_path_for_write(path)?;
         std::fs::write(&full, content).map_err(|e| format!("write error: {e}"))?;
         Ok(ToolOutput::text(&format!("ok ({bytes} bytes)", bytes = content.len()), ToolImportance::Normal))
     }

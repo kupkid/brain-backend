@@ -51,6 +51,20 @@ pub struct StreamChunk {
     pub tokens_used: Option<usize>,
 }
 
+#[derive(Debug, Clone)]
+pub struct LlmToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments: serde_json::Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct LlmToolResult {
+    pub content: String,
+    pub tool_calls: Vec<LlmToolCall>,
+    pub tokens_used: usize,
+}
+
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
     async fn complete(
@@ -60,7 +74,21 @@ pub trait LlmProvider: Send + Sync {
         temperature: Option<f32>,
     ) -> Result<LlmResponse, LlmError>;
 
-    /// Streaming completion — yields chunks via channel
+    /// Tool-calling completion. Default: no tools, falls back to complete.
+    async fn complete_with_tools(
+        &self,
+        messages: &[LlmMessage],
+        max_tokens: Option<usize>,
+        temperature: Option<f32>,
+    ) -> Result<LlmToolResult, LlmError> {
+        let resp = self.complete(messages, max_tokens, temperature).await?;
+        Ok(LlmToolResult {
+            content: resp.content,
+            tool_calls: Vec::new(),
+            tokens_used: resp.tokens_used,
+        })
+    }
+
     async fn complete_stream(
         &self,
         messages: &[LlmMessage],
@@ -68,7 +96,6 @@ pub trait LlmProvider: Send + Sync {
         temperature: Option<f32>,
         tx: tokio::sync::mpsc::Sender<StreamChunk>,
     ) -> Result<LlmResponse, LlmError> {
-        // Default: fall back to non-streaming
         let response = self.complete(messages, max_tokens, temperature).await?;
         let _ = tx.send(StreamChunk {
             delta: response.content.clone(),

@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use brain_backend::agent::{AgentLoop, AgentConfig};
 use brain_backend::agent::tools;
 use brain_backend::provider::cohere_llm::CohereLlm;
+use brain_backend::provider::openai_compat::OpenAiCompatLlm;
 use brain_backend::provider::cohere_embedding::CohereEmbedding;
 use brain_backend::provider::embedding::EmbeddingProvider;
 use brain_backend::provider::llm::LlmProvider;
@@ -20,9 +21,6 @@ async fn main() {
                 .unwrap_or_else(|_| "brain_backend=info".into()),
         )
         .init();
-
-    let api_key = std::env::var("COHERE_API_KEY")
-        .expect("COHERE_API_KEY env var is required");
 
     let data_dir = std::env::var("BRAIN_DATA_DIR")
         .map(PathBuf::from)
@@ -64,7 +62,6 @@ async fn main() {
         c.last_insert_rowid()
     };
 
-    let llm_base = CohereLlm::new(api_key.clone(), None, None);
     let config = AgentConfig::from_env();
     let workspace = config.workspace_dir.clone();
 
@@ -73,9 +70,28 @@ async fn main() {
         workspace.clone(), config.tool_timeout_seconds,
     );
 
-    // Create LLM with tools for native function calling
-    let llm = Arc::new(llm_base.with_tools(toolbox.schema()));
-    let embedding = Arc::new(CohereEmbedding::new(api_key, None));
+    // Create LLM provider based on env vars
+    let provider = std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "cohere".to_string());
+    let llm: Arc<dyn LlmProvider> = match provider.as_str() {
+        "openai_compat" => {
+            let api_key = std::env::var("LLM_API_KEY").expect("LLM_API_KEY required for openai_compat");
+            let model = std::env::var("LLM_MODEL").expect("LLM_MODEL required for openai_compat");
+            let base_url = std::env::var("LLM_BASE_URL").expect("LLM_BASE_URL required for openai_compat");
+            println!("Provider: OpenAI-compatible ({}, {})", model, base_url);
+            Arc::new(OpenAiCompatLlm::new(api_key, model, base_url).with_tools(toolbox.schema()))
+        }
+        _ => {
+            let api_key = std::env::var("COHERE_API_KEY").expect("COHERE_API_KEY required");
+            println!("Provider: Cohere (command-a-plus-05-2026)");
+            Arc::new(CohereLlm::new(api_key.clone(), None, None).with_tools(toolbox.schema()))
+        }
+    };
+
+    // Embedding provider (always Cohere for now)
+    let emb_key = std::env::var("COHERE_API_KEY")
+        .or_else(|_| std::env::var("LLM_API_KEY"))
+        .expect("COHERE_API_KEY or LLM_API_KEY required for embeddings");
+    let embedding = Arc::new(CohereEmbedding::new(emb_key, None));
 
     print!("Health check... ");
     let llm_ok = llm.health_check().await;
@@ -98,6 +114,33 @@ async fn main() {
     let mut history: Vec<AgentMessage> = Vec::new();
     let stdin = std::io::stdin();
 
+    // Detect if stdin is a pipe (non-interactive)
+    use std::io::IsTerminal;
+    let is_tty = stdin.is_terminal();
+
+    if !is_tty {
+        // Piped input: read everything at once
+        let mut input = String::new();
+        std::io::Read::read_to_string(&mut stdin.lock(), &mut input).ok();
+        let input = input.trim();
+        if input.is_empty() { return; }
+
+        let response = agent.process_message(input, &history).await;
+        println!("\n{}", response.content);
+        if !response.tool_results.is_empty() {
+            println!("\n{}", "Tools:".dimmed());
+            for tr in &response.tool_results {
+                let status = if tr.output.result.is_null() { "err".red() } else { "ok".green() };
+                let summary = tr.output.result.to_string();
+                let short = if summary.len() > 120 { format!("{}...", &summary[..120]) } else { summary };
+                println!("  {} {} — {}", status, tr.name, short.dimmed());
+            }
+        }
+        println!("{}\n", format!("({} tokens)", response.tokens_used).dimmed());
+        return;
+    }
+
+    // Interactive mode: line by line
     loop {
         print!("{} ", ">".green().bold());
         use std::io::Write;
