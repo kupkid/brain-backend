@@ -1,8 +1,8 @@
 package com.brain.app.features.chat
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -158,8 +158,8 @@ fun EmptyState(
 
                         AnimatedVisibility(
                             visible = isDropdownOpen,
-                            enter = expandVertically(),
-                            exit = shrinkVertically()
+                            enter = fadeIn(),
+                            exit = fadeOut()
                         ) {
                             Card(
                                 modifier = Modifier

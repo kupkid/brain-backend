@@ -1,5 +1,6 @@
 package com.brain.app.data
 
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -35,6 +36,7 @@ data class TodoTask(
     val status: String = "pending"
 )
 
+@Serializable
 data class TaskRequest(
     val task: String,
     val mode: String? = null

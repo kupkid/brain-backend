@@ -213,7 +213,7 @@ fun DoneSummary(event: AgentEvent.Done) {
         horizontalArrangement = Arrangement.Center
     ) {
         Surface(
-            shape = RoundedCornerShape(BrainShapes.full),
+            shape = BrainShapes.full,
             color = BrainColors.bg300
         ) {
             Row(

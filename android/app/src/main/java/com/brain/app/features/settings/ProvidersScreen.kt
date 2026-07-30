@@ -233,7 +233,7 @@ private fun ProviderCard(
 
                 // Status badge
                 Surface(
-                    shape = RoundedCornerShape(BrainShapes.full),
+                    shape = BrainShapes.full,
                     color = if (provider.enabled) BrainColors.success100.copy(alpha = 0.15f)
                     else BrainColors.text500.copy(alpha = 0.1f)
                 ) {
@@ -247,7 +247,7 @@ private fun ProviderCard(
 
                 if (provider.isDefault) {
                     Surface(
-                        shape = RoundedCornerShape(BrainShapes.full),
+                        shape = BrainShapes.full,
                         color = BrainColors.accentMain100.copy(alpha = 0.15f)
                     ) {
                         Text(

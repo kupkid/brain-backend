@@ -14,7 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brain.app.data.AgentEvent
-import com.brain.app.features.message.MessageRenderer
+import com.brain.app.features.message.*
 import com.brain.app.theme.BrainColors
 import kotlinx.coroutines.launch
 

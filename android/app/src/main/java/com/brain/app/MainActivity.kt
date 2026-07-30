@@ -104,12 +104,10 @@ fun BrainApp() {
                     ) {
                         if (events.isEmpty() && !isRunning) {
                             EmptyState(
-                                onStartTask = { task ->
+                                onStartChat = { task ->
                                     inputValue = ""
                                     vm.sendTask(task)
-                                },
-                                selectedModel = selectedModel,
-                                onModelClick = { showModelSelector = true }
+                                }
                             )
                         } else {
                             Column(modifier = Modifier.fillMaxSize()) {
@@ -141,7 +139,7 @@ fun BrainApp() {
 
             if (showModelSelector) {
                 ModelSelector(
-                    models = vm.availableModels,
+                    models = vm.availableModels.collectAsState().value,
                     selected = selectedModel,
                     onSelect = { model ->
                         vm.selectModel(model)

@@ -94,9 +94,9 @@ private fun ModelChip(
     Surface(
         modifier = Modifier
             .padding(end = 8.dp)
-            .clip(RoundedCornerShape(BrainShapes.full))
+            .clip(BrainShapes.full)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(BrainShapes.full),
+        shape = BrainShapes.full,
         color = BrainColors.bg300
     ) {
         Row(

@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -18,6 +19,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -79,7 +81,7 @@ fun InputBox(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(BrainShapes.inputField))
+                .clip(BrainShapes.inputField)
                 .background(BrainColors.bg300)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
@@ -174,9 +176,9 @@ private fun ModelInputChip(
     val displayName = model.split("/").lastOrNull()?.take(15) ?: model
     Surface(
         modifier = Modifier
-            .clip(RoundedCornerShape(BrainShapes.full))
+            .clip(BrainShapes.full)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(BrainShapes.full),
+        shape = BrainShapes.full,
         color = BrainColors.bg400
     ) {
         Row(
