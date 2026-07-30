@@ -16,6 +16,7 @@ use crate::memory::{
     IngestParams, MemoryIngestion, MemoryRepository, MemoryRetriever, check_content,
     validate_layer_for_project,
 };
+use crate::opencode_api::SseBroadcaster;
 use crate::project::ProjectRepository;
 use crate::provider::embedding::EmbeddingProvider;
 use crate::run::{EventStore, RunContextRepository, RunRepository, ToolRepository};
@@ -33,6 +34,7 @@ pub struct AppState {
     pub llm_factory: Arc<LlmFactory>,
     pub embedding: Arc<dyn EmbeddingProvider>,
     pub api_key: Option<String>,
+    pub sse_broadcaster: SseBroadcaster,
 }
 
 pub fn create_router(state: Arc<AppState>) -> Router {

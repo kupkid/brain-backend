@@ -37,6 +37,7 @@ reqwest = { version = "0.12", features = ["json", "blocking", "stream", "rustls-
 clap = { version = "4", features = ["derive"] }
 colored = "2"
 regex = "1"
+async-stream = "0.3"
 
 [dev-dependencies]
 tokio-tungstenite = "0.24"

@@ -4,6 +4,7 @@ pub mod config;
 pub mod context;
 pub mod db;
 pub mod memory;
+pub mod opencode_api;
 pub mod project;
 pub mod provider;
 pub mod run;

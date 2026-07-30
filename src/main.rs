@@ -212,6 +212,8 @@ async fn main() -> Result<()> {
 
     let api_key = std::env::var("BRAIN_API_KEY").ok();
 
+    let sse_broadcaster = brain_backend::opencode_api::SseBroadcaster::new(1024);
+
     let state = Arc::new(AppState {
         config: config.clone(),
         conn: Mutex::new(conn),
@@ -220,6 +222,7 @@ async fn main() -> Result<()> {
         llm_factory: Arc::new(llm_factory),
         embedding,
         api_key,
+        sse_broadcaster,
     });
 
     let cors = CorsLayer::new()
@@ -227,7 +230,8 @@ async fn main() -> Result<()> {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let app = brain_backend::api::create_router(state)
+    let app = brain_backend::api::create_router(state.clone())
+        .merge(brain_backend::opencode_api::create_opencode_router(state))
         .layer(cors)
         .layer(TraceLayer::new_for_http());
 
