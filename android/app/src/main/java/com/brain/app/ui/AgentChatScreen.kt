@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brain.app.*
 import com.brain.app.ui.theme.AppShapes
+import com.brain.app.ui.theme.BrainColors
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BUBBLE POSITION — iMessage-style grouped corners
@@ -79,9 +80,7 @@ fun bubbleShape(position: BubblePosition, role: BubbleRole): RoundedCornerShape 
 
 @Composable
 fun shimmerBrush(): Brush {
-    val colors = listOf(
-        Color(0xFF2A2A2A), Color(0xFF1A1A1A), Color(0xFF2A2A2A)
-    )
+    val colors = listOf(BrainColors.Bg300, BrainColors.Bg100, BrainColors.Bg300)
     val transition = rememberInfiniteTransition(label = "sh")
     val translate = transition.animateFloat(
         0f, 1000f,
@@ -127,13 +126,13 @@ fun ActivityPill(
     val type = classifyTool(toolName)
     val icon = activityIcon(type)
     val color = when (type) {
-        ActivityType.SHELL -> Color(0xFF4CAF50)
-        ActivityType.FILE -> Color(0xFF2196F3)
-        ActivityType.SEARCH -> Color(0xFFFF9800)
-        ActivityType.TODO -> Color(0xFF9C27B0)
-        ActivityType.BROWSER -> Color(0xFF00BCD4)
-        ActivityType.REASONING -> Color(0xFFFFC107)
-        ActivityType.OTHER -> Color(0xFF607D8B)
+        ActivityType.SHELL -> BrainColors.Success
+        ActivityType.FILE -> BrainColors.Info
+        ActivityType.SEARCH -> BrainColors.Warning
+        ActivityType.TODO -> BrainColors.AccentSecondary
+        ActivityType.BROWSER -> BrainColors.AccentMain200
+        ActivityType.REASONING -> BrainColors.Warning
+        ActivityType.OTHER -> BrainColors.Text300
     }
 
     Surface(
@@ -260,18 +259,18 @@ private fun EmptyState() {
         ) {
             Box(
                 modifier = Modifier.size(72.dp).clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)),
+                    .background(BrainColors.AccentMain100.copy(alpha = 0.08f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Default.AutoAwesome, null, Modifier.size(36.dp),
-                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                    tint = BrainColors.AccentMain100.copy(alpha = 0.3f))
             }
             Spacer(Modifier.height(20.dp))
             Text("Чем могу помочь?", fontSize = 22.sp, fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface)
+                color = BrainColors.Text100)
             Spacer(Modifier.height(8.dp))
             Text("Задайте вопрос или поручите задачу", fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
+                color = BrainColors.Text400)
         }
     }
 }
@@ -397,11 +396,11 @@ fun UserBubble(text: String, position: BubblePosition = BubblePosition.SINGLE) {
     ) {
         Surface(
             shape = shape,
-            color = MaterialTheme.colorScheme.primary,
+            color = BrainColors.AccentMain100,
             modifier = Modifier.widthIn(max = 320.dp)
         ) {
             Text(
-                text = text, color = MaterialTheme.colorScheme.onPrimary,
+                text = text, color = BrainColors.OnColor,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                 fontSize = 15.sp, lineHeight = 22.sp
             )
