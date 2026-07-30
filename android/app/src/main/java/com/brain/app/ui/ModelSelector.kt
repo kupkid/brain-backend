@@ -185,7 +185,7 @@ private fun SearchBar(query: String, onQueryChange: (String) -> Unit) {
 }
 
 @Composable
-private fun ModelModelSectionHeader(title: String) {
+private fun ModelSectionHeader(title: String) {
     Text(
         title.uppercase(),
         fontSize = 10.sp,

@@ -282,38 +282,54 @@ private fun EmptyState() {
 @Composable
 private fun ChatMessageList(events: List<AgentEvent>, listState: androidx.compose.foundation.lazy.LazyListState) {
     val groups = remember(events) { buildEventGroups(events) }
-
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-        contentPadding = PaddingValues(vertical = 8.dp)
-    ) {
-        items(groups.size) { groupIdx ->
-            val group = groups[groupIdx]
+    val flatItems = remember(groups) {
+        groups.flatMap { group ->
             when (group) {
-                is EventGroup.UserMessages -> {
-                    val texts = group.texts
-                    items(texts.size) { i ->
-                        val pos = getBubblePosition(i, texts.size)
-                        UserBubble(texts[i], pos)
-                    }
-                }
-                is EventGroup.Activity -> {
-                    ActivityPill(group.toolName, group.isRunning,
-                        modifier = Modifier.padding(top = 4.dp, end = 48.dp))
-                    group.result?.let { result ->
-                        ToolResultInline(result)
-                    }
-                }
-                is EventGroup.Todo -> TodoProgress(group.event)
-                is EventGroup.FileRead -> FileReadBlock(group.event)
-                is EventGroup.Streaming -> StreamingText(group.event)
-                is EventGroup.Response -> ResponseBlock(group.event)
-                is EventGroup.Error -> ErrorBlock(group.event)
+                is EventGroup.UserMessages -> group.texts.map { FlatItem.UserBubble(it, group.texts.indexOf(it), group.texts.size) }
+                is EventGroup.Activity -> listOf(FlatItem.Activity(group))
+                is EventGroup.Todo -> listOf(FlatItem.Todo(group.event))
+                is EventGroup.FileRead -> listOf(FlatItem.FileRead(group.event))
+                is EventGroup.Streaming -> listOf(FlatItem.Streaming(group.event))
+                is EventGroup.Response -> listOf(FlatItem.Response(group.event))
+                is EventGroup.Error -> listOf(FlatItem.Error(group.event))
             }
         }
     }
+
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        contentPadding = PaddingValues(vertical = 8.dp)
+    ) {
+        items(flatItems.size) { idx ->
+            when (val item = flatItems[idx]) {
+                is FlatItem.UserBubble -> UserBubble(item.text, getBubblePosition(item.pos, item.total))
+                is FlatItem.Activity -> {
+                    ActivityPill(item.group.toolName, item.group.isRunning,
+                        modifier = Modifier.padding(top = 4.dp, end = 48.dp))
+                    item.group.result?.let { result ->
+                        ToolResultInline(result)
+                    }
+                }
+                is FlatItem.Todo -> TodoProgress(item.event)
+                is FlatItem.FileRead -> FileReadBlock(item.event)
+                is FlatItem.Streaming -> StreamingText(item.event)
+                is FlatItem.Response -> ResponseBlock(item.event)
+                is FlatItem.Error -> ErrorBlock(item.event)
+            }
+        }
+    }
+}
+
+private sealed class FlatItem {
+    data class UserBubble(val text: String, val pos: Int, val total: Int) : FlatItem()
+    data class Activity(val group: EventGroup.Activity) : FlatItem()
+    data class Todo(val event: TodoUpdateEvent) : FlatItem()
+    data class FileRead(val event: FileReadEvent) : FlatItem()
+    data class Streaming(val event: TextEvent) : FlatItem()
+    data class Response(val event: DoneEvent) : FlatItem()
+    data class Error(val event: ErrorEvent) : FlatItem()
 }
 
 // Event grouping logic
