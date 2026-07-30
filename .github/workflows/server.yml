@@ -1,0 +1,40 @@
+name: Server Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'migrations/**'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: release build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+
+      - name: Build release
+        run: cargo build --release
+        env:
+          CARGO_BUILD_JOBS: 2
+
+      - name: Strip binary
+        run: strip target/release/brain-backend || true
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: brain-backend-linux-amd64
+          path: target/release/brain-backend
+          retention-days: 3
