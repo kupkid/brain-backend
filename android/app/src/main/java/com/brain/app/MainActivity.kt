@@ -1,15 +1,13 @@
 package com.brain.app
 
+import android.app.Application
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -19,16 +17,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.brain.app.data.AgentEvent
 import com.brain.app.data.BrainSettings
 import com.brain.app.features.chat.*
 import com.brain.app.features.settings.SettingsScreen
 import com.brain.app.features.settings.ProvidersScreen
 import com.brain.app.theme.BrainColors
+import com.brain.app.theme.BrainShapes
 import com.brain.app.theme.BrainTheme
 import com.brain.app.viewmodel.BrainViewModel
 import com.brain.app.viewmodel.BrainViewModelFactory
@@ -37,35 +36,23 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val settings = BrainSettings(this)
-
         setContent {
             BrainTheme {
-                var showSettings by remember { mutableStateOf(false) }
-                var showProviders by remember { mutableStateOf(false) }
-
-                when {
-                    showProviders -> ProvidersScreen(
-                        settings = settings,
-                        onBack = { showProviders = false }
-                    )
-                    showSettings -> SettingsScreen(
-                        settings = settings,
-                        onBack = { showSettings = false },
-                        onProviders = { showProviders = true }
-                    )
-                    else -> BrainApp(settings)
-                }
+                BrainApp()
             }
         }
     }
 }
 
 @Composable
-fun BrainApp(settings: BrainSettings) {
-    val factory = remember { BrainViewModelFactory(application, settings) }
+fun BrainApp() {
+    val context = LocalContext.current
+    val settings = remember { BrainSettings(context) }
+    val factory = remember { BrainViewModelFactory(context.applicationContext as Application, settings) }
     val vm: BrainViewModel = viewModel(factory = factory)
 
+    var showSettings by remember { mutableStateOf(false) }
+    var showProviders by remember { mutableStateOf(false) }
     var inputValue by remember { mutableStateOf("") }
     var showModelSelector by remember { mutableStateOf(false) }
     var showDrawer by remember { mutableStateOf(false) }
@@ -74,84 +61,96 @@ fun BrainApp(settings: BrainSettings) {
     val isRunning by vm.isRunning.collectAsState()
     val selectedModel by vm.selectedModel.collectAsState()
 
-    ModalNavigationDrawer(
-        drawerContent = {
-            DrawerContent(
-                onNewChat = { vm.newChat() },
-                onSettings = {
-                    showDrawer = false
-                    showSettings = true
-                },
-                onDismiss = { showDrawer = false }
-            )
-        },
-        gesturesEnabled = showDrawer
-    ) {
-        Scaffold(
-            topBar = {
-                Header(
-                    title = "New chat",
-                    selectedModel = selectedModel,
-                    onTitleChange = { },
-                    onModelClick = { showModelSelector = true },
-                    onMenuClick = { showDrawer = true }
-                )
-            },
-            containerColor = BrainColors.bg000
-        ) { padding ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-            ) {
-                if (events.isEmpty() && !isRunning) {
-                    EmptyState(
-                        onStartTask = { task ->
-                            inputValue = ""
-                            vm.sendTask(task)
+    when {
+        showProviders -> ProvidersScreen(
+            settings = settings,
+            onBack = { showProviders = false }
+        )
+        showSettings -> SettingsScreen(
+            settings = settings,
+            onBack = { showSettings = false },
+            onProviders = { showProviders = true }
+        )
+        else -> {
+            ModalNavigationDrawer(
+                drawerContent = {
+                    DrawerContent(
+                        onNewChat = { vm.newChat() },
+                        onSettings = {
+                            showDrawer = false
+                            showSettings = true
                         },
-                        selectedModel = selectedModel,
-                        onModelClick = { showModelSelector = true }
+                        onDismiss = { showDrawer = false }
                     )
-                } else {
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        ChatArea(
-                            events = events,
-                            isRunning = isRunning,
-                            streamingText = "",
-                            modifier = Modifier.weight(1f)
-                        )
-                        InputBox(
-                            value = inputValue,
-                            onValueChange = { inputValue = it },
-                            onSend = {
-                                if (inputValue.isNotBlank()) {
-                                    vm.sendTask(inputValue)
-                                    inputValue = ""
-                                }
-                            },
-                            onStop = { vm.stopAgent() },
-                            isRunning = isRunning,
+                },
+                gesturesEnabled = showDrawer
+            ) {
+                Scaffold(
+                    topBar = {
+                        Header(
+                            title = "New chat",
                             selectedModel = selectedModel,
-                            onModelClick = { showModelSelector = true }
+                            onTitleChange = { },
+                            onModelClick = { showModelSelector = true },
+                            onMenuClick = { showDrawer = true }
                         )
+                    },
+                    containerColor = BrainColors.bg000
+                ) { padding ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding)
+                    ) {
+                        if (events.isEmpty() && !isRunning) {
+                            EmptyState(
+                                onStartTask = { task ->
+                                    inputValue = ""
+                                    vm.sendTask(task)
+                                },
+                                selectedModel = selectedModel,
+                                onModelClick = { showModelSelector = true }
+                            )
+                        } else {
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                ChatArea(
+                                    events = events,
+                                    isRunning = isRunning,
+                                    streamingText = "",
+                                    modifier = Modifier.weight(1f)
+                                )
+                                InputBox(
+                                    value = inputValue,
+                                    onValueChange = { inputValue = it },
+                                    onSend = {
+                                        if (inputValue.isNotBlank()) {
+                                            vm.sendTask(inputValue)
+                                            inputValue = ""
+                                        }
+                                    },
+                                    onStop = { vm.stopAgent() },
+                                    isRunning = isRunning,
+                                    selectedModel = selectedModel,
+                                    onModelClick = { showModelSelector = true }
+                                )
+                            }
+                        }
                     }
                 }
             }
-        }
-    }
 
-    // Model selector dialog
-    if (showModelSelector) {
-        ModelSelector(
-            models = vm.availableModels,
-            selected = selectedModel,
-            onSelect = { model ->
-                vm.selectModel(model)
-                showModelSelector = false
-            },
-            onDismiss = { showModelSelector = false }
-        )
+            if (showModelSelector) {
+                ModelSelector(
+                    models = vm.availableModels,
+                    selected = selectedModel,
+                    onSelect = { model ->
+                        vm.selectModel(model)
+                        showModelSelector = false
+                    },
+                    onDismiss = { showModelSelector = false }
+                )
+            }
+        }
     }
 }
 
@@ -170,7 +169,6 @@ private fun DrawerContent(
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
-            // Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -189,7 +187,6 @@ private fun DrawerContent(
 
             Spacer(Modifier.height(16.dp))
 
-            // New chat button
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -223,7 +220,6 @@ private fun DrawerContent(
 
             Spacer(Modifier.height(8.dp))
 
-            // Empty state
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -237,7 +233,6 @@ private fun DrawerContent(
                 )
             }
 
-            // Settings
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
