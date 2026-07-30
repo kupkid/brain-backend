@@ -14,31 +14,33 @@
 - [x] CI: cargo check + fmt + clippy + test
 
 ## This Session: Full UI Overhaul
-### Phase 1: Foundation
-- [ ] Theme.kt — AMOLED dark + AppShapes + typography
-- [ ] Shape.kt — LastChat shape tokens
-- [ ] PROGRESS.md — this file
+### Phase 1: Foundation ✅
+- [x] Theme.kt — AMOLED dark + AppShapes + dynamic color
+- [x] Shape.kt — LastChat shape tokens (MessageOutgoing/Incoming, CardLarge, etc.)
+- [x] PROGRESS.md — this file
 
-### Phase 2: Chat UI (LastChat-inspired)
-- [ ] GroupedMessageBubble — iMessage-style smart corners
-- [ ] ActivityPill — tool call indicator with shimmer
-- [ ] AgentChatScreen — grouped bubbles, activity pills, streaming text
-- [ ] ChatInput — plus button, model picker, pill shape
-- [ ] Empty state — centered greeting
+### Phase 2: Chat UI (LastChat-inspired) ✅
+- [x] GroupedMessageBubble — iMessage-style smart corners (SINGLE/FIRST/MIDDLE/LAST)
+- [x] ActivityPill — tool call indicator with shimmer + color per tool type
+- [x] AgentChatScreen — grouped bubbles, activity pills, streaming text, stats
+- [x] ChatInput — pill shape + model picker + send button
+- [x] Empty state — centered "Чем могу помочь?"
 
-### Phase 3: Settings + Providers
-- [ ] SettingsScreen — section-based, haptic items
-- [ ] ProvidersScreen — fix "Ошибка загрузки: null", better cards
+### Phase 3: Settings + Providers ✅
+- [x] SettingsScreen — section-based, haptic items, server config dialog
+- [x] ProvidersScreen — fix "Ошибка загрузки: null" + error colors + safe response checks
 
-### Phase 4: Connection + Security
-- [ ] WebSocket reconnect logic
-- [ ] Android Keystore for API keys
-- [ ] Proper error handling in WS
+### Phase 4: Connection + Security (partial)
+- [x] WebSocket: OkHttp keepalive ping/pong (30s)
+- [x] Error messages: descriptive connection errors (timeout, refused, reset, 401, 404)
+- [ ] WebSocket reconnect logic (exponential backoff) — TODO
+- [ ] Android Keystore for API keys — TODO
+- [ ] Room DB for chat persistence — TODO
 
-### Phase 5: Documentation
-- [ ] ANDROID_UI_ARCHITECTURE.md — ✅ done
-- [ ] PROGRESS.md — this file
-- [ ] Update docs/ with new patterns
+### Phase 5: Documentation ✅
+- [x] ANDROID_UI_ARCHITECTURE.md — file map, data flow, security
+- [x] PROGRESS.md — this file
+- [x] UI_GUIDE.md — visual language, components, navigation
 
 ## Key Decisions
 1. **AMOLED black** (#000000) forced for background + surface (LastChat pattern)
