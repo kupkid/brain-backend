@@ -105,8 +105,18 @@ fun ProvidersScreen(
                     .get()
                     .build()
                 val response = okHttpClient.newCall(request).execute()
-                val text = response.body?.string() ?: "[]"
-                val arr = JSONArray(text)
+                if (!response.isSuccessful) {
+                    statusMessage = "Ошибка: HTTP ${response.code}"
+                    loading = false
+                    return@launch
+                }
+                val body = response.body?.string()
+                if (body == null) {
+                    statusMessage = "Ошибка: пустой ответ"
+                    loading = false
+                    return@launch
+                }
+                val arr = JSONArray(body)
                 val list = mutableListOf<ServerProvider>()
                 for (i in 0 until arr.length()) {
                     val obj = arr.getJSONObject(i)
@@ -120,8 +130,13 @@ fun ProvidersScreen(
                             .get()
                             .build()
                         val mResp = okHttpClient.newCall(mReq).execute()
-                        val mArr = JSONArray(mResp.body?.string() ?: "[]")
-                        modelCount = mArr.length()
+                        if (mResp.isSuccessful) {
+                            val mBody = mResp.body?.string()
+                            if (mBody != null) {
+                                val mArr = JSONArray(mBody)
+                                modelCount = mArr.length()
+                            }
+                        }
                     } catch (_: Exception) {}
                     list.add(
                         ServerProvider(
@@ -151,10 +166,16 @@ fun ProvidersScreen(
                 val request = okhttp3.Request.Builder()
                     .url("${settings.serverUrl()}/v1/providers/$providerId/fetch-models")
                     .addHeader("Authorization", "Bearer ${settings.serverApiKey.value}")
-                    .post(okhttp3.RequestBody.create(null, byteArrayOf()))
+                    .post(ByteArray(0).toRequestBody(null))
                     .build()
                 val response = okHttpClient.newCall(request).execute()
-                val obj = JSONObject(response.body?.string() ?: "{}")
+                if (!response.isSuccessful) {
+                    statusMessage = "Ошибка: HTTP ${response.code}"
+                    fetchingModelsId = null
+                    return@launch
+                }
+                val body = response.body?.string() ?: "{}"
+                val obj = JSONObject(body)
                 val saved = obj.optInt("saved", 0)
                 statusMessage = "Загружено $saved моделей"
                 fetchingModelsId = null
@@ -292,13 +313,18 @@ fun ProvidersScreen(
 
             // Status message
             statusMessage?.let { msg ->
+                val isError = msg.startsWith("Ошибка")
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                     shape = RoundedCornerShape(10.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1A2A1A)),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isError) Color(0xFF2A1A1A) else Color(0xFF1A2A1A)
+                    ),
                 ) {
                     Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(msg, color = Color(0xFF4CAF50), fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        Text(msg,
+                            color = if (isError) Color(0xFFEF5350) else Color(0xFF4CAF50),
+                            fontSize = 13.sp, modifier = Modifier.weight(1f))
                         IconButton(onClick = { statusMessage = null }, Modifier.size(20.dp)) {
                             Icon(Icons.Default.Close, null, Modifier.size(14.dp), tint = Color(0xFF666666))
                         }

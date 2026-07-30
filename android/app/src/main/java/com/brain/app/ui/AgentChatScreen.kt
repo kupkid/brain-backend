@@ -3,7 +3,6 @@ package com.brain.app.ui
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -35,41 +34,139 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brain.app.*
-import kotlinx.serialization.json.JsonPrimitive
+import com.brain.app.ui.theme.AppShapes
 
-// ─── Shimmer ────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// BUBBLE POSITION — iMessage-style grouped corners
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum class BubblePosition { SINGLE, FIRST, MIDDLE, LAST }
+
+enum class BubbleRole { USER, ASSISTANT, ACTIVITY }
+
+fun getBubblePosition(index: Int, total: Int): BubblePosition = when {
+    total == 1 -> BubblePosition.SINGLE
+    index == 0 -> BubblePosition.FIRST
+    index == total - 1 -> BubblePosition.LAST
+    else -> BubblePosition.MIDDLE
+}
+
+@Composable
+fun bubbleShape(position: BubblePosition, role: BubbleRole): RoundedCornerShape {
+    val large = 20.dp
+    val small = 6.dp
+    val isLeft = role != BubbleRole.USER
+    return when (position) {
+        BubblePosition.SINGLE -> RoundedCornerShape(large)
+        BubblePosition.FIRST -> if (isLeft)
+            RoundedCornerShape(large, large, large, small)
+        else
+            RoundedCornerShape(large, large, small, large)
+        BubblePosition.MIDDLE -> if (isLeft)
+            RoundedCornerShape(small, large, large, small)
+        else
+            RoundedCornerShape(large, small, small, large)
+        BubblePosition.LAST -> if (isLeft)
+            RoundedCornerShape(small, large, large, large)
+        else
+            RoundedCornerShape(large, small, large, large)
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SHIMMER — for loading states
+// ═══════════════════════════════════════════════════════════════════════════
+
 @Composable
 fun shimmerBrush(): Brush {
-    val shimmerColors = listOf(
+    val colors = listOf(
         Color(0xFF2A2A2A), Color(0xFF1A1A1A), Color(0xFF2A2A2A)
     )
-    val transition = rememberInfiniteTransition(label = "shimmer")
-    val translateAnim = transition.animateFloat(
-        initialValue = 0f, targetValue = 1000f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ), label = "shimmer"
+    val transition = rememberInfiniteTransition(label = "sh")
+    val translate = transition.animateFloat(
+        0f, 1000f,
+        infiniteRepeatable(tween(1200, easing = FastOutSlowInEasing), RepeatMode.Restart),
+        label = "sh"
     )
-    return Brush.linearGradient(
-        colors = shimmerColors,
-        start = Offset.Zero,
-        end = Offset(x = translateAnim.value, y = translateAnim.value)
-    )
+    return Brush.linearGradient(colors, start = Offset.Zero, end = Offset(translate.value, translate.value))
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ACTIVITY PILLS — tool call indicators
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum class ActivityType { REASONING, SHELL, FILE, SEARCH, TODO, BROWSER, OTHER }
+
+fun classifyTool(name: String): ActivityType = when {
+    name.contains("shell", true) || name.contains("exec", true) -> ActivityType.SHELL
+    name.contains("file", true) || name.contains("read", true) || name.contains("write", true) -> ActivityType.FILE
+    name.contains("grep", true) || name.contains("search", true) -> ActivityType.SEARCH
+    name.contains("todo", true) -> ActivityType.TODO
+    name.contains("browser", true) -> ActivityType.BROWSER
+    name.contains("list", true) || name.contains("dir", true) -> ActivityType.FILE
+    else -> ActivityType.OTHER
 }
 
 @Composable
-fun toolIcon(toolName: String) = when {
-    toolName.contains("grep", true) || toolName.contains("search", true) -> Icons.Default.Search
-    toolName.contains("file", true) || toolName.contains("read", true) || toolName.contains("write", true) -> Icons.Default.Description
-    toolName.contains("shell", true) || toolName.contains("exec", true) -> Icons.Default.Terminal
-    toolName.contains("todo", true) -> Icons.Default.Checklist
-    toolName.contains("browser", true) || toolName.contains("navigate", true) -> Icons.Default.Language
-    toolName.contains("list", true) || toolName.contains("dir", true) -> Icons.Default.Folder
-    else -> Icons.Default.Build
+fun activityIcon(type: ActivityType) = when (type) {
+    ActivityType.REASONING -> Icons.Default.Lightbulb
+    ActivityType.SHELL -> Icons.Default.Terminal
+    ActivityType.FILE -> Icons.Default.Description
+    ActivityType.SEARCH -> Icons.Default.Search
+    ActivityType.TODO -> Icons.Default.Checklist
+    ActivityType.BROWSER -> Icons.Default.Language
+    ActivityType.OTHER -> Icons.Default.Build
 }
 
-// ─── Main Chat Screen ───────────────────────────────────────────────────
+@Composable
+fun ActivityPill(
+    toolName: String,
+    isRunning: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val type = classifyTool(toolName)
+    val icon = activityIcon(type)
+    val color = when (type) {
+        ActivityType.SHELL -> Color(0xFF4CAF50)
+        ActivityType.FILE -> Color(0xFF2196F3)
+        ActivityType.SEARCH -> Color(0xFFFF9800)
+        ActivityType.TODO -> Color(0xFF9C27B0)
+        ActivityType.BROWSER -> Color(0xFF00BCD4)
+        ActivityType.REASONING -> Color(0xFFFFC107)
+        ActivityType.OTHER -> Color(0xFF607D8B)
+    }
+
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(20.dp),
+        color = color.copy(alpha = 0.12f),
+        contentColor = color
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            if (isRunning) {
+                Box(modifier = Modifier.size(14.dp).clip(RoundedCornerShape(4.dp)).background(shimmerBrush()))
+            } else {
+                Icon(icon, null, modifier = Modifier.size(14.dp))
+            }
+            Text(
+                toolName,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MAIN CHAT SCREEN
+// ═══════════════════════════════════════════════════════════════════════════
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AgentChatScreen(
@@ -91,9 +188,7 @@ fun AgentChatScreen(
     val focusManager = LocalFocusManager.current
 
     LaunchedEffect(events.size) {
-        if (events.isNotEmpty()) {
-            listState.animateScrollToItem(events.size - 1)
-        }
+        if (events.isNotEmpty()) listState.animateScrollToItem(events.size - 1)
     }
 
     Scaffold(
@@ -123,69 +218,17 @@ fun AgentChatScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            // Messages area
             if (events.isEmpty() && !isRunning) {
-                // ─── Empty state ───
-                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(horizontal = 32.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(72.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.AutoAwesome, null,
-                                modifier = Modifier.size(36.dp),
-                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
-                        }
-                        Spacer(Modifier.height(20.dp))
-                        Text("Чем могу помочь?",
-                            fontSize = 22.sp, fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface)
-                        Spacer(Modifier.height(8.dp))
-                        Text("Задайте вопрос или поручите задачу",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
-                    }
-                }
+                EmptyState()
             } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                    contentPadding = PaddingValues(vertical = 8.dp)
-                ) {
-                    items(events.size) { idx ->
-                        val event = events[idx]
-                        when (event) {
-                            is ThoughtEvent -> {
-                                if (idx == 0 || events.getOrNull(idx - 1) !is ThoughtEvent) {
-                                    UserBubble(event.text)
-                                }
-                            }
-                            is ToolCallEvent -> SkeletonToolCall(event, events, idx)
-                            is ToolResultEvent -> ToolResultInline(event)
-                            is TodoUpdateEvent -> TodoProgress(event)
-                            is FileReadEvent -> FileReadBlock(event)
-                            is TextEvent -> StreamingText(event)
-                            is DoneEvent -> ResponseBlock(event)
-                            is ErrorEvent -> ErrorBlock(event)
-                        }
-                    }
-                }
+                ChatMessageList(events, listState)
             }
-
-            // ─── Input area ───
             ChatInputArea(
                 input = input,
                 onInputChange = { input = it },
@@ -204,15 +247,156 @@ fun AgentChatScreen(
     }
 }
 
-// ─── User Bubble ─────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// EMPTY STATE
+// ═══════════════════════════════════════════════════════════════════════════
+
 @Composable
-fun UserBubble(text: String) {
+private fun EmptyState() {
+    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 32.dp)
+        ) {
+            Box(
+                modifier = Modifier.size(72.dp).clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.AutoAwesome, null, Modifier.size(36.dp),
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+            }
+            Spacer(Modifier.height(20.dp))
+            Text("Чем могу помочь?", fontSize = 22.sp, fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface)
+            Spacer(Modifier.height(8.dp))
+            Text("Задайте вопрос или поручите задачу", fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MESSAGE LIST — grouped by role with smart corners
+// ═══════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun ChatMessageList(events: List<AgentEvent>, listState: androidx.compose.foundation.lazy.LazyListState) {
+    val groups = remember(events) { buildEventGroups(events) }
+
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        contentPadding = PaddingValues(vertical = 8.dp)
+    ) {
+        items(groups.size) { groupIdx ->
+            val group = groups[groupIdx]
+            when (group) {
+                is EventGroup.UserMessages -> {
+                    val texts = group.texts
+                    items(texts.size) { i ->
+                        val pos = getBubblePosition(i, texts.size)
+                        UserBubble(texts[i], pos)
+                    }
+                }
+                is EventGroup.Activity -> {
+                    ActivityPill(group.toolName, group.isRunning,
+                        modifier = Modifier.padding(top = 4.dp, end = 48.dp))
+                    group.result?.let { result ->
+                        ToolResultInline(result)
+                    }
+                }
+                is EventGroup.Todo -> TodoProgress(group.event)
+                is EventGroup.FileRead -> FileReadBlock(group.event)
+                is EventGroup.Streaming -> StreamingText(group.event)
+                is EventGroup.Response -> ResponseBlock(group.event)
+                is EventGroup.Error -> ErrorBlock(group.event)
+            }
+        }
+    }
+}
+
+// Event grouping logic
+sealed class EventGroup {
+    data class UserMessages(val texts: List<String>) : EventGroup()
+    data class Activity(val toolName: String, val isRunning: Boolean, val result: ToolResultEvent? = null) : EventGroup()
+    data class Todo(val event: TodoUpdateEvent) : EventGroup()
+    data class FileRead(val event: FileReadEvent) : EventGroup()
+    data class Streaming(val event: TextEvent) : EventGroup()
+    data class Response(val event: DoneEvent) : EventGroup()
+    data class Error(val event: ErrorEvent) : EventGroup()
+}
+
+private fun buildEventGroups(events: List<AgentEvent>): List<EventGroup> {
+    val groups = mutableListOf<EventGroup>()
+    var pendingUserTexts = mutableListOf<String>()
+
+    fun flushUser() {
+        if (pendingUserTexts.isNotEmpty()) {
+            groups.add(EventGroup.UserMessages(pendingUserTexts.toList()))
+            pendingUserTexts = mutableListOf()
+        }
+    }
+
+    var i = 0
+    while (i < events.size) {
+        val ev = events[i]
+        when (ev) {
+            is ThoughtEvent -> {
+                pendingUserTexts.add(ev.text)
+            }
+            is ToolCallEvent -> {
+                flushUser()
+                val toolName = ev.tool
+                val callId = ev.callId
+                var result: ToolResultEvent? = null
+                var j = i + 1
+                while (j < events.size) {
+                    val next = events[j]
+                    if (next is ToolResultEvent && next.callId == callId) {
+                        result = next
+                        j++
+                        break
+                    }
+                    if (next is ToolCallEvent) break
+                    j++
+                }
+                groups.add(EventGroup.Activity(toolName, result == null, result))
+                i = j - 1
+            }
+            is ToolResultEvent -> { /* handled with ToolCall */ }
+            is TodoUpdateEvent -> { flushUser(); groups.add(EventGroup.Todo(ev)) }
+            is FileReadEvent -> { flushUser(); groups.add(EventGroup.FileRead(ev)) }
+            is TextEvent -> { flushUser(); groups.add(EventGroup.Streaming(ev)) }
+            is DoneEvent -> { flushUser(); groups.add(EventGroup.Response(ev)) }
+            is ErrorEvent -> { flushUser(); groups.add(EventGroup.Error(ev)) }
+        }
+        i++
+    }
+    flushUser()
+    return groups
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// USER BUBBLE — right-aligned with smart corners
+// ═══════════════════════════════════════════════════════════════════════════
+
+@Composable
+fun UserBubble(text: String, position: BubblePosition = BubblePosition.SINGLE) {
+    val shape = bubbleShape(position, BubbleRole.USER)
+    val verticalPadding = when (position) {
+        BubblePosition.FIRST -> PaddingValues(start = 48.dp, end = 0.dp, top = 8.dp, bottom = 1.dp)
+        BubblePosition.MIDDLE -> PaddingValues(start = 48.dp, end = 0.dp, top = 1.dp, bottom = 1.dp)
+        BubblePosition.LAST -> PaddingValues(start = 48.dp, end = 0.dp, top = 1.dp, bottom = 8.dp)
+        BubblePosition.SINGLE -> PaddingValues(start = 48.dp, end = 0.dp, top = 8.dp, bottom = 8.dp)
+    }
     Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 48.dp, end = 0.dp, top = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(verticalPadding),
         horizontalArrangement = Arrangement.End
     ) {
         Surface(
-            shape = RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp),
+            shape = shape,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.widthIn(max = 320.dp)
         ) {
@@ -225,107 +409,10 @@ fun UserBubble(text: String) {
     }
 }
 
-// ─── Skeleton Tool Call ──────────────────────────────────────────────────
-@Composable
-fun SkeletonToolCall(event: ToolCallEvent, allEvents: List<AgentEvent>, index: Int) {
-    var expanded by remember { mutableStateOf(false) }
-    val hasResult = allEvents.drop(index + 1).takeWhile {
-        it is ToolCallEvent || it is ToolResultEvent
-    }.filterIsInstance<ToolResultEvent>().any { it.call_id == event.call_id }
+// ═══════════════════════════════════════════════════════════════════════════
+// TOOL RESULT — inline green/red badge
+// ═══════════════════════════════════════════════════════════════════════════
 
-    val icon = toolIcon(event.tool)
-    val argsPreview = buildString {
-        event.args.entries.take(1).forEach { (_, v) ->
-            val value = when (v) {
-                is JsonPrimitive -> v.content
-                else -> v.toString().take(40)
-            }
-            append(value.take(60))
-        }
-    }
-
-    Column(modifier = Modifier.padding(start = 0.dp, end = 48.dp, top = 6.dp)) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .clickable { if (hasResult) expanded = !expanded },
-            color = if (hasResult) MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f)
-            else Color.Transparent,
-            shape = RoundedCornerShape(12.dp),
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(icon, null, tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
-                }
-                if (hasResult) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            event.tool,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                            fontSize = 13.sp, fontWeight = FontWeight.Medium
-                        )
-                        if (argsPreview.isNotBlank()) {
-                            Text(
-                                argsPreview.take(80),
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                                fontSize = 12.sp, fontFamily = FontFamily.Monospace,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                    Icon(
-                        if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        null, modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                    )
-                } else {
-                    Box(modifier = Modifier.weight(1f).height(16.dp).clip(RoundedCornerShape(4.dp))) {
-                        Box(modifier = Modifier.fillMaxSize().background(brush = shimmerBrush()))
-                    }
-                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 1.5.dp,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                }
-            }
-        }
-
-        // Expanded details
-        if (expanded && hasResult) {
-            val resultEvent = allEvents.drop(index + 1).takeWhile {
-                it is ToolCallEvent || it is ToolResultEvent
-            }.filterIsInstance<ToolResultEvent>().firstOrNull { it.call_id == event.call_id }
-            if (resultEvent != null && resultEvent.summary.isNotBlank()) {
-                Surface(
-                    modifier = Modifier.padding(start = 12.dp, top = 2.dp).fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.3f),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(
-                        resultEvent.summary,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 12,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(10.dp)
-                    )
-                }
-            }
-        }
-    }
-}
-
-// ─── Tool Result (inline) ───────────────────────────────────────────────
 @Composable
 fun ToolResultInline(event: ToolResultEvent) {
     Row(
@@ -348,7 +435,10 @@ fun ToolResultInline(event: ToolResultEvent) {
     }
 }
 
-// ─── Todo Progress ──────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// TODO PROGRESS
+// ═══════════════════════════════════════════════════════════════════════════
+
 @Composable
 fun TodoProgress(event: TodoUpdateEvent) {
     val done = event.todos.count { it.status == "done" }
@@ -379,7 +469,10 @@ fun TodoProgress(event: TodoUpdateEvent) {
     }
 }
 
-// ─── File Read Block ────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// FILE READ BLOCK
+// ═══════════════════════════════════════════════════════════════════════════
+
 @Composable
 fun FileReadBlock(event: FileReadEvent) {
     Column(modifier = Modifier.fillMaxWidth().padding(end = 48.dp, top = 4.dp)) {
@@ -398,102 +491,67 @@ fun FileReadBlock(event: FileReadEvent) {
     }
 }
 
-// ─── Streaming Text ─────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// STREAMING TEXT
+// ═══════════════════════════════════════════════════════════════════════════
+
 @Composable
 fun StreamingText(event: TextEvent) {
     val clipboardManager = LocalClipboardManager.current
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(top = 12.dp, end = 8.dp)
-    ) {
-        Text(
-            text = event.text,
-            color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 15.sp,
-            lineHeight = 23.sp
-        )
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp, end = 8.dp)) {
+        Text(event.text, color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp, lineHeight = 23.sp)
         Row(modifier = Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             IconButton(onClick = { clipboardManager.setText(AnnotatedString(event.text)) }, modifier = Modifier.size(28.dp)) {
-                Icon(Icons.Default.ContentCopy, "Copy", modifier = Modifier.size(16.dp),
+                Icon(Icons.Default.ContentCopy, "Copy", Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
             }
         }
     }
 }
 
-// ─── Response Block + Stats ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// RESPONSE BLOCK + STATS
+// ═══════════════════════════════════════════════════════════════════════════
+
 @Composable
 fun ResponseBlock(event: DoneEvent) {
     val clipboardManager = LocalClipboardManager.current
     Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp, end = 8.dp)) {
         if (event.summary.isNotBlank()) {
-            Text(
-                text = event.summary,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 15.sp,
-                lineHeight = 23.sp
-            )
+            Text(event.summary, color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp, lineHeight = 23.sp)
         }
-
-        // Action row
         Row(modifier = Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            AssistChip(
-                onClick = { clipboardManager.setText(AnnotatedString(event.summary)) },
+            AssistChip(onClick = { clipboardManager.setText(AnnotatedString(event.summary)) },
                 label = { Text("Копировать", fontSize = 11.sp) },
                 leadingIcon = { Icon(Icons.Default.ContentCopy, null, Modifier.size(14.dp)) },
-                modifier = Modifier.height(28.dp),
-                shape = RoundedCornerShape(8.dp),
-                colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-            )
-            AssistChip(
-                onClick = { /* TODO: regenerate */ },
+                modifier = Modifier.height(28.dp), shape = RoundedCornerShape(8.dp),
+                colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh))
+            AssistChip(onClick = { },
                 label = { Text("Ещё раз", fontSize = 11.sp) },
                 leadingIcon = { Icon(Icons.Default.Refresh, null, Modifier.size(14.dp)) },
-                modifier = Modifier.height(28.dp),
-                shape = RoundedCornerShape(8.dp),
-                colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-            )
+                modifier = Modifier.height(28.dp), shape = RoundedCornerShape(8.dp),
+                colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh))
         }
-
-        // Stats bar
         if (event.total_tokens > 0) {
-            Row(
-                modifier = Modifier.padding(top = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                val fmt = { n: Int ->
-                    when {
-                        n >= 1000 -> "${"%.1f".format(n / 1000f)}K"
-                        else -> "$n"
-                    }
-                }
-                val fmtD = { d: Double ->
-                    when {
-                        d >= 1000 -> "${"%.1f".format(d / 1000f)}K"
-                        else -> "${"%.1f".format(d)}"
-                    }
-                }
-                Text(
-                    "↑${fmt(event.tokens_input)} ↓${fmt(event.tokens_output)}",
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f),
-                    fontSize = 11.sp
-                )
-                Text(
-                    "⚡${fmtD(event.tokens_per_sec)} tok/s",
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f),
-                    fontSize = 11.sp
-                )
+            Row(modifier = Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                val fmt = { n: Int -> if (n >= 1000) "${"%.1f".format(n / 1000f)}K" else "$n" }
+                Text("↑${fmt(event.tokens_input)} ↓${fmt(event.tokens_output)}",
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f), fontSize = 11.sp)
+                val tps = event.tokens_per_sec
+                if (tps > 0) Text("⚡${"%.1f".format(tps)} tok/s",
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f), fontSize = 11.sp)
                 val seconds = event.elapsed_ms / 1000.0
-                Text(
-                    "⏱${"%.1f".format(seconds)}s",
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f),
-                    fontSize = 11.sp
-                )
+                Text("⏱${"%.1f".format(seconds)}s",
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f), fontSize = 11.sp)
             }
         }
     }
 }
 
-// ─── Error Block ────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// ERROR BLOCK
+// ═══════════════════════════════════════════════════════════════════════════
+
 @Composable
 fun ErrorBlock(event: ErrorEvent) {
     Surface(
@@ -509,7 +567,10 @@ fun ErrorBlock(event: ErrorEvent) {
     }
 }
 
-// ─── Chat Input Area — full rounded rectangle with model selector ───────
+// ═══════════════════════════════════════════════════════════════════════════
+// CHAT INPUT — pill shape with model selector
+// ═══════════════════════════════════════════════════════════════════════════
+
 @Composable
 fun ChatInputArea(
     input: String,
@@ -530,24 +591,17 @@ fun ChatInputArea(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-            // Input field — large rounded rectangle
             Surface(
-                shape = RoundedCornerShape(20.dp),
+                shape = AppShapes.InputField,
                 color = MaterialTheme.colorScheme.surfaceContainer,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column {
                     OutlinedTextField(
-                        value = input,
-                        onValueChange = onInputChange,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .focusRequester(focusRequester),
-                        placeholder = {
-                            Text("Сообщение...",
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
-                                fontSize = 15.sp)
-                        },
+                        value = input, onValueChange = onInputChange,
+                        modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                        placeholder = { Text("Сообщение...",
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f), fontSize = 15.sp) },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = Color.Transparent,
                             unfocusedBorderColor = Color.Transparent,
@@ -561,16 +615,11 @@ fun ChatInputArea(
                         keyboardActions = KeyboardActions(onSend = { onSend() }),
                         maxLines = 6,
                     )
-
-                    // Bottom row: model chip + send
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        // Model selector chip
                         if (shortModel.isNotBlank()) {
                             Surface(
                                 modifier = Modifier.clickable { showModelPicker = !showModelPicker },
@@ -591,16 +640,13 @@ fun ChatInputArea(
                                         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
                                 }
                             }
-                        } else {
-                            Spacer(Modifier.height(1.dp))
-                        }
+                        } else Spacer(Modifier.height(1.dp))
 
-                        // Send button
                         FilledIconButton(
                             onClick = onSend,
                             enabled = input.isNotBlank() && !isRunning,
                             modifier = Modifier.size(40.dp),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = AppShapes.ButtonSquared,
                             colors = IconButtonDefaults.filledIconButtonColors(
                                 containerColor = MaterialTheme.colorScheme.primary,
                                 contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -608,18 +654,14 @@ fun ChatInputArea(
                                 disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
                             )
                         ) {
-                            if (isRunning) {
-                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
-                            } else {
-                                Icon(Icons.Default.ArrowUpward, "Send", modifier = Modifier.size(20.dp))
-                            }
+                            if (isRunning) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
+                            else Icon(Icons.Default.ArrowUpward, "Send", Modifier.size(20.dp))
                         }
                     }
                 }
             }
 
-            // Model picker dropdown
             AnimatedVisibility(visible = showModelPicker && availableModels.size > 1) {
                 Surface(
                     modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
@@ -633,11 +675,8 @@ fun ChatInputArea(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                         availableModels.take(8).forEach { model ->
                             val isSelected = model == selectedModel
-                            val displayName = model.split("/").last()
                             Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
+                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
                                     .clickable { onModelSelected(model); showModelPicker = false },
                                 color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent
                             ) {
@@ -650,20 +689,11 @@ fun ChatInputArea(
                                             tint = MaterialTheme.colorScheme.primary)
                                         Spacer(Modifier.width(8.dp))
                                     }
-                                    Text(
-                                        displayName,
-                                        fontSize = 14.sp,
+                                    Text(model.split("/").last(), fontSize = 14.sp,
                                         color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.weight(1f),
-                                        maxLines = 1, overflow = TextOverflow.Ellipsis
-                                    )
+                                        modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             }
-                        }
-                        if (availableModels.size > 8) {
-                            Text("+${availableModels.size - 8} ещё", fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
                         }
                     }
                 }
