@@ -1,0 +1,59 @@
+name: Recon
+
+on:
+  workflow_dispatch:
+
+jobs:
+  recon:
+    name: environment recon
+    runs-on: ubuntu-latest
+    steps:
+      - name: System info
+        run: |
+          echo "=== OS ==="
+          uname -a
+          cat /etc/os-release | head -5
+          echo ""
+          echo "=== CPU ==="
+          lscpu | grep -E "^(Architecture|CPU\(s\)|Model name|Thread|Core|Socket|CPU MHz|CPU max)"
+          echo ""
+          echo "=== RAM ==="
+          free -h
+          echo ""
+          echo "=== Disk ==="
+          df -h /
+          echo ""
+          echo "=== Network ==="
+          curl -s --max-time 5 ifconfig.me && echo
+          echo ""
+          echo "=== Docker ==="
+          docker --version 2>/dev/null || echo "not installed"
+          echo ""
+          echo "=== Rust ==="
+          rustc --version
+          cargo --version
+          echo ""
+          echo "=== Node ==="
+          node --version 2>/dev/null || echo "not installed"
+          echo ""
+          echo "=== Python ==="
+          python3 --version 2>/dev/null || echo "not installed"
+          echo ""
+          echo "=== Java ==="
+          java -version 2>&1 | head -1
+          echo ""
+          echo "=== Environment ==="
+          echo "HOME=$HOME"
+          echo "USER=$(whoami)"
+          echo "SHELL=$SHELL"
+          echo "LANG=$LANG"
+          echo "PATH=$PATH" | tr ':' '\n' | head -10
+          echo ""
+          echo "=== Limits ==="
+          ulimit -a 2>/dev/null | head -20
+          echo ""
+          echo "=== Kernel ==="
+          cat /proc/version
+          echo ""
+          echo "=== Timing ==="
+          echo "Build started at: $(date -u)"
