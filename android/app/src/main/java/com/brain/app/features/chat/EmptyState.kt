@@ -156,7 +156,7 @@ fun EmptyState(
                             singleLine = true
                         )
 
-                        AnimatedVisibility(
+                        androidx.compose.animation.AnimatedVisibility(
                             visible = isDropdownOpen,
                             enter = fadeIn(),
                             exit = fadeOut()
