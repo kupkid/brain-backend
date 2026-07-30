@@ -2,13 +2,13 @@ use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;
 use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use axum::response::sse::Event;
 use axum::response::sse::Sse;
-use axum::response::IntoResponse;
 use axum::routing::delete;
 use axum::routing::get;
-use axum::routing::post;
 use axum::routing::patch;
+use axum::routing::post;
 use axum::{Json, Router};
 use futures::Stream;
 use serde::{Deserialize, Serialize};
@@ -283,18 +283,29 @@ pub fn create_opencode_router(state: Arc<AppState>) -> Router {
         // Sessions
         .route("/session", get(oc_list_sessions).post(oc_create_session))
         .route("/session/status", get(oc_session_status))
-        .route("/session/:id", get(oc_get_session).delete(oc_delete_session).patch(oc_update_session))
+        .route(
+            "/session/:id",
+            get(oc_get_session)
+                .delete(oc_delete_session)
+                .patch(oc_update_session),
+        )
         .route("/session/:id/abort", post(oc_abort_session))
         .route("/session/:id/children", get(oc_session_children))
         .route("/session/:id/todo", get(oc_session_todo))
         .route("/session/:id/fork", post(oc_fork_session))
         // Messages & Prompt
-        .route("/session/:id/message", get(oc_list_messages).post(oc_prompt))
+        .route(
+            "/session/:id/message",
+            get(oc_list_messages).post(oc_prompt),
+        )
         .route("/session/:id/message/:mid", get(oc_get_message))
         .route("/session/:id/prompt_async", post(oc_prompt_async))
         .route("/session/:id/command", post(oc_command))
         .route("/session/:id/shell", post(oc_shell))
-        .route("/session/:id/message/:mid/part/:pid", delete(oc_delete_part).patch(oc_update_part))
+        .route(
+            "/session/:id/message/:mid/part/:pid",
+            delete(oc_delete_part).patch(oc_update_part),
+        )
         // Config
         .route("/config", get(oc_get_config).patch(oc_update_config))
         .route("/config/providers", get(oc_config_providers))
@@ -395,7 +406,7 @@ async fn oc_global_event(
                             // Strip "data: " prefix and "\n\n" suffix
                             let trimmed = data.strip_prefix("data: ").unwrap_or(&data);
                             let trimmed = trimmed.strip_suffix("\n\n").unwrap_or(trimmed);
-                            yield Ok(Event::default().data(trimmed.to_string()));
+                            yield Ok(Event::default().data(trimmed));
                         }
                         Err(broadcast::error::RecvError::Lagged(_)) => {}
                         Err(broadcast::error::RecvError::Closed) => break,
@@ -437,7 +448,11 @@ async fn oc_list_sessions(
             let sessions: Vec<OcSession> = runs.into_iter().map(|r| run_to_session(&r)).collect();
             Json(serde_json::json!(sessions)).into_response()
         }
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal"}))).into_response(),
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal"})),
+        )
+            .into_response(),
     }
 }
 
@@ -445,7 +460,10 @@ async fn oc_create_session(
     State(state): State<Arc<AppState>>,
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let title = body.get("title").and_then(|v| v.as_str()).unwrap_or("New Session");
+    let title = body
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("New Session");
     let directory = std::env::current_dir()
         .unwrap_or_default()
         .to_string_lossy()
@@ -464,9 +482,7 @@ async fn oc_create_session(
     match repo.create(&new_run) {
         Ok(id) => {
             let uuid = {
-                let mut stmt = conn
-                    .prepare("SELECT uuid FROM runs WHERE id = ?1")
-                    .unwrap();
+                let mut stmt = conn.prepare("SELECT uuid FROM runs WHERE id = ?1").unwrap();
                 stmt.query_row(rusqlite::params![id], |r| {
                     let b: Vec<u8> = r.get(0)?;
                     Ok(hex::encode(&b))
@@ -495,14 +511,17 @@ async fn oc_create_session(
             };
 
             // Broadcast session.created
-            state.sse_broadcaster.broadcast(
-                "session.created",
-                serde_json::json!({ "info": session }),
-            );
+            state
+                .sse_broadcaster
+                .broadcast("session.created", serde_json::json!({ "info": session }));
 
             (StatusCode::CREATED, Json(serde_json::json!(session))).into_response()
         }
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal"}))).into_response(),
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "internal"})),
+        )
+            .into_response(),
     }
 }
 
@@ -569,10 +588,9 @@ async fn oc_abort_session(
             "UPDATE runs SET status = 'cancelled', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?1",
             rusqlite::params![rid],
         );
-        state.sse_broadcaster.broadcast(
-            "session.idle",
-            serde_json::json!({ "sessionID": id }),
-        );
+        state
+            .sse_broadcaster
+            .broadcast("session.idle", serde_json::json!({ "sessionID": id }));
         Json(serde_json::json!(true)).into_response()
     } else {
         StatusCode::NOT_FOUND.into_response()
@@ -639,7 +657,11 @@ async fn oc_list_messages(
                 let messages = events_to_messages(&id, &events);
                 Json(serde_json::json!(messages)).into_response()
             }
-            Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal"}))).into_response(),
+            Err(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response(),
         }
     } else {
         StatusCode::NOT_FOUND.into_response()
@@ -691,7 +713,11 @@ async fn oc_prompt(
         .join("\n");
 
     if user_text.is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "no text in parts"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "no text in parts"})),
+        )
+            .into_response();
     }
 
     let conn = state.conn.lock().unwrap();
@@ -719,10 +745,9 @@ async fn oc_prompt(
     let _ = store.insert_event(run_id, "message", &user_event.to_string());
 
     // Broadcast user message
-    state.sse_broadcaster.broadcast(
-        "message.updated",
-        serde_json::json!({ "info": user_event }),
-    );
+    state
+        .sse_broadcaster
+        .broadcast("message.updated", serde_json::json!({ "info": user_event }));
 
     // Set session to busy
     state.sse_broadcaster.broadcast(
@@ -816,9 +841,7 @@ async fn oc_update_part(
 
 // --- Session status ---
 
-async fn oc_session_status(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn oc_session_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let conn = state.conn.lock().unwrap();
     let repo = crate::run::RunRepository::new(&conn);
     match repo.list(None, None, 100) {
@@ -850,16 +873,12 @@ async fn oc_get_config() -> impl IntoResponse {
     }))
 }
 
-async fn oc_update_config(
-    Json(body): Json<serde_json::Value>,
-) -> impl IntoResponse {
+async fn oc_update_config(Json(body): Json<serde_json::Value>) -> impl IntoResponse {
     // Stub — accept but don't persist
     Json(body).into_response()
 }
 
-async fn oc_config_providers(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn oc_config_providers(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let conn = state.conn.lock().unwrap();
     let providers_repo = crate::settings::providers::ProvidersRepository::new(&conn);
     match providers_repo.list() {
@@ -886,9 +905,7 @@ async fn oc_config_providers(
 
 // --- Providers ---
 
-async fn oc_list_providers(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn oc_list_providers(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let conn = state.conn.lock().unwrap();
     let providers_repo = crate::settings::providers::ProvidersRepository::new(&conn);
     match providers_repo.list() {
@@ -924,9 +941,7 @@ async fn oc_provider_auth() -> impl IntoResponse {
 
 // --- Projects ---
 
-async fn oc_list_projects(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn oc_list_projects(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let conn = state.conn.lock().unwrap();
     let repo = crate::project::ProjectRepository::new(&conn, state.config.data_dir.clone());
     match repo.list(100) {
@@ -946,9 +961,7 @@ async fn oc_list_projects(
     }
 }
 
-async fn oc_current_project(
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn oc_current_project(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let conn = state.conn.lock().unwrap();
     let repo = crate::project::ProjectRepository::new(&conn, state.config.data_dir.clone());
     match repo.list(1) {
@@ -993,7 +1006,8 @@ async fn oc_list_agents() -> impl IntoResponse {
     Json(serde_json::json!(vec![
         OcAgent {
             name: "coder".to_string(),
-            description: "Main coding agent — writes code, runs commands, manages files".to_string(),
+            description: "Main coding agent — writes code, runs commands, manages files"
+                .to_string(),
             mode: "primary".to_string(),
             native: Some(true),
             hidden: Some(false),
@@ -1027,21 +1041,17 @@ async fn oc_list_skills() -> impl IntoResponse {
 // --- Commands ---
 
 async fn oc_list_commands() -> impl IntoResponse {
-    Json(serde_json::json!(vec![
-        OcCommand {
-            name: "compact".to_string(),
-            description: "Compact the conversation context".to_string(),
-            agent: Some("coder".to_string()),
-            model: None,
-        },
-    ]))
+    Json(serde_json::json!(vec![OcCommand {
+        name: "compact".to_string(),
+        description: "Compact the conversation context".to_string(),
+        agent: Some("coder".to_string()),
+        model: None,
+    },]))
 }
 
 // --- File ---
 
-async fn oc_list_files(
-    Query(q): Query<FileQuery>,
-) -> impl IntoResponse {
+async fn oc_list_files(Query(q): Query<FileQuery>) -> impl IntoResponse {
     let dir = q.path.unwrap_or_else(|| ".".to_string());
     match std::fs::read_dir(&dir) {
         Ok(entries) => {
@@ -1065,9 +1075,7 @@ async fn oc_list_files(
     }
 }
 
-async fn oc_read_file(
-    Query(q): Query<HashMap<String, String>>,
-) -> impl IntoResponse {
+async fn oc_read_file(Query(q): Query<HashMap<String, String>>) -> impl IntoResponse {
     if let Some(path) = q.get("path") {
         match std::fs::read_to_string(path) {
             Ok(content) => Json(serde_json::json!({
@@ -1087,16 +1095,12 @@ async fn oc_read_file(
 
 // --- Find ---
 
-async fn oc_find_files(
-    Query(q): Query<FindQuery>,
-) -> impl IntoResponse {
+async fn oc_find_files(Query(q): Query<FindQuery>) -> impl IntoResponse {
     let _ = q;
     Json(serde_json::json!([])).into_response()
 }
 
-async fn oc_find_text(
-    Query(q): Query<TextSearchQuery>,
-) -> impl IntoResponse {
+async fn oc_find_text(Query(q): Query<TextSearchQuery>) -> impl IntoResponse {
     let _ = q;
     Json(serde_json::json!([])).into_response()
 }
@@ -1111,7 +1115,9 @@ async fn oc_vcs_info() -> impl IntoResponse {
         .ok()
         .and_then(|o| {
             if o.status.success() {
-                String::from_utf8(o.stdout).ok().map(|s| s.trim().to_string())
+                String::from_utf8(o.stdout)
+                    .ok()
+                    .map(|s| s.trim().to_string())
             } else {
                 None
             }
@@ -1197,11 +1203,9 @@ fn run_to_session(run: &crate::run::repository::StoredRun) -> OcSession {
         "%Y-%m-%dT%H:%M:%S%.f",
     )
     .ok()
-    .and_then(|dt| {
-        Some(
-            chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(dt, chrono::Utc)
-                .timestamp_millis(),
-        )
+    .map(|dt| {
+        chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(dt, chrono::Utc)
+            .timestamp_millis()
     })
     .unwrap_or(0);
 
@@ -1252,10 +1256,7 @@ fn find_run_id_by_session_id(conn: &rusqlite::Connection, session_id: &str) -> O
     .ok()
 }
 
-fn events_to_messages(
-    session_id: &str,
-    events: &[crate::run::events::RunEvent],
-) -> Vec<OcMessage> {
+fn events_to_messages(session_id: &str, events: &[crate::run::events::RunEvent]) -> Vec<OcMessage> {
     let mut messages: Vec<OcMessage> = Vec::new();
     let mut current_role = String::new();
     let mut current_parts: Vec<serde_json::Value> = Vec::new();
@@ -1319,7 +1320,10 @@ fn events_to_messages(
                 let state = if event.event_type == "tool_call" {
                     serde_json::json!({ "type": "running", "input": payload.get("args").map(|a| a.to_string()).unwrap_or_default() })
                 } else {
-                    let success = payload.get("success").and_then(|s| s.as_bool()).unwrap_or(true);
+                    let success = payload
+                        .get("success")
+                        .and_then(|s| s.as_bool())
+                        .unwrap_or(true);
                     if success {
                         serde_json::json!({ "type": "completed", "title": tool_name, "output": payload.get("summary").and_then(|s| s.as_str()).unwrap_or("") })
                     } else {
@@ -1370,7 +1374,11 @@ async fn run_opencode_agent(
     data_dir: std::path::PathBuf,
     master_key: [u8; 32],
 ) {
-    use crate::agent::{AgentConfig, AgentLoop, agent_loop::{AgentMessage, WsAgentEvent}, tools};
+    use crate::agent::{
+        AgentConfig, AgentLoop,
+        agent_loop::{AgentMessage, WsAgentEvent},
+        tools,
+    };
 
     let db_path = data_dir.join("brain.db");
     let conn = match crate::db::init_db(&db_path) {
@@ -1398,8 +1406,8 @@ async fn run_opencode_agent(
     let llm = llm_factory(&conn.lock().unwrap(), &master_key, tools_schema);
     let (tx, mut rx) = tokio::sync::mpsc::channel::<WsAgentEvent>(64);
 
-    let agent = AgentLoop::new(llm, embedding, conn.clone(), toolbox, config, run_id)
-        .with_event_sender(tx);
+    let agent =
+        AgentLoop::new(llm, embedding, conn.clone(), toolbox, config, run_id).with_event_sender(tx);
 
     let task = user_text.to_string();
     let sid = session_id.to_string();
@@ -1490,8 +1498,6 @@ async fn run_opencode_agent(
                 WsAgentEvent::Done {
                     summary,
                     total_tokens,
-                    total_calls: _,
-                    ts: _,
                     ..
                 } => {
                     // Emit final assistant message
@@ -1512,10 +1518,7 @@ async fn run_opencode_agent(
                         }),
                     );
                     // Session idle
-                    bcast2.broadcast(
-                        "session.idle",
-                        serde_json::json!({ "sessionID": sid2 }),
-                    );
+                    bcast2.broadcast("session.idle", serde_json::json!({ "sessionID": sid2 }));
                     bcast2.broadcast(
                         "session.status",
                         serde_json::json!({ "sessionID": sid2, "status": { "type": "idle" } }),
