@@ -112,7 +112,7 @@ fun ModelSelector(
                         verticalArrangement = Arrangement.spacedBy(1.dp)
                     ) {
                         if (pinned.isNotEmpty()) {
-                            item { SectionHeader("Крупные модели") }
+                            item { ModelSectionHeader("Крупные модели") }
                             items(pinned, key = { it.id }) { model ->
                                 ModelItemRow(model, model.id == selectedModel) {
                                     onModelSelected(model); expanded = false
@@ -120,7 +120,7 @@ fun ModelSelector(
                             }
                         }
                         if (recent.isNotEmpty()) {
-                            item { SectionHeader("Другие модели") }
+                            item { ModelSectionHeader("Другие модели") }
                             items(recent, key = { it.id }) { model ->
                                 ModelItemRow(model, model.id == selectedModel) {
                                     onModelSelected(model); expanded = false
@@ -128,7 +128,7 @@ fun ModelSelector(
                             }
                         }
                         if (others.isNotEmpty()) {
-                            item { SectionHeader("Модели") }
+                            item { ModelSectionHeader("Модели") }
                             items(others, key = { it.id }) { model ->
                                 ModelItemRow(model, model.id == selectedModel) {
                                     onModelSelected(model); expanded = false
@@ -185,7 +185,7 @@ private fun SearchBar(query: String, onQueryChange: (String) -> Unit) {
 }
 
 @Composable
-private fun SectionHeader(title: String) {
+private fun ModelModelSectionHeader(title: String) {
     Text(
         title.uppercase(),
         fontSize = 10.sp,
@@ -225,11 +225,11 @@ private fun ModelItemRow(
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (model.supportsReasoning) {
                         Icon(Icons.Default.Lightbulb, "Reasoning", Modifier.size(11.dp),
-                            tint = BrainColors.Warning.copy(alpha = 0.7f))
+                            tint = BrainColors.Warning100.copy(alpha = 0.7f))
                     }
                     if (model.supportsVision) {
                         Icon(Icons.Default.Visibility, "Vision", Modifier.size(11.dp),
-                            tint = BrainColors.Info.copy(alpha = 0.7f))
+                            tint = BrainColors.Info100.copy(alpha = 0.7f))
                     }
                     if (model.supportsTools) {
                         Icon(Icons.Default.Build, "Tools", Modifier.size(11.dp),

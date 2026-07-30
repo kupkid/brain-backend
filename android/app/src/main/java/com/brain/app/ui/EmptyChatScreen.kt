@@ -30,7 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Chat
-import androidx.compose.material.icons.filled.ChevronDown
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
@@ -236,7 +236,7 @@ private fun DirectorySelector() {
                 maxLines = 1
             )
             Icon(
-                Icons.Default.ChevronDown,
+                Icons.Default.ExpandMore,
                 contentDescription = null,
                 tint = BrainColors.Text400,
                 modifier = Modifier.size(16.dp)
@@ -474,7 +474,7 @@ private fun ToolbarChip(
             fontSize = 12.sp
         )
         Icon(
-            Icons.Default.ChevronDown,
+            Icons.Default.ExpandMore,
             contentDescription = null,
             tint = BrainColors.Text400,
             modifier = Modifier.size(12.dp)
@@ -487,7 +487,6 @@ private fun ToolbarChip(
 // ═══════════════════════════════════════════════════════════════════════════
 
 @Composable
-@androidx.compose.ui.tooling.preview.Preview
 private fun EmptyChatScreenPreview() {
     com.brain.app.ui.theme.BrainTheme {
         EmptyChatScreen()

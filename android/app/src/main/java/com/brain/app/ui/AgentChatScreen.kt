@@ -126,12 +126,12 @@ fun ActivityPill(
     val type = classifyTool(toolName)
     val icon = activityIcon(type)
     val color = when (type) {
-        ActivityType.SHELL -> BrainColors.Success
-        ActivityType.FILE -> BrainColors.Info
-        ActivityType.SEARCH -> BrainColors.Warning
+        ActivityType.SHELL -> BrainColors.Success100
+        ActivityType.FILE -> BrainColors.Info100
+        ActivityType.SEARCH -> BrainColors.Warning100
         ActivityType.TODO -> BrainColors.AccentSecondary
         ActivityType.BROWSER -> BrainColors.AccentMain200
-        ActivityType.REASONING -> BrainColors.Warning
+        ActivityType.REASONING -> BrainColors.Warning100
         ActivityType.OTHER -> BrainColors.Text300
     }
 
@@ -252,7 +252,7 @@ fun AgentChatScreen(
 
 @Composable
 private fun EmptyState() {
-    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(horizontal = 32.dp)
@@ -348,12 +348,12 @@ private fun buildEventGroups(events: List<AgentEvent>): List<EventGroup> {
             is ToolCallEvent -> {
                 flushUser()
                 val toolName = ev.tool
-                val callId = ev.callId
+                val callId = ev.call_id
                 var result: ToolResultEvent? = null
                 var j = i + 1
                 while (j < events.size) {
                     val next = events[j]
-                    if (next is ToolResultEvent && next.callId == callId) {
+                    if (next is ToolResultEvent && next.call_id == callId) {
                         result = next
                         j++
                         break
