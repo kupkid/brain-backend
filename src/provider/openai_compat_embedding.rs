@@ -83,7 +83,11 @@ impl EmbeddingProvider for OpenAiCompatEmbedding {
             .await
             .map_err(|e| EmbeddingError::Provider(format!("parse error: {e}")))?;
 
-        let embeddings: Vec<Vec<f32>> = embed_response.data.into_iter().map(|d| d.embedding).collect();
+        let embeddings: Vec<Vec<f32>> = embed_response
+            .data
+            .into_iter()
+            .map(|d| d.embedding)
+            .collect();
 
         for emb in &embeddings {
             if emb.len() != self.dimensions {

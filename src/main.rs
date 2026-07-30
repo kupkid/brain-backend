@@ -73,12 +73,19 @@ async fn main() -> Result<()> {
     let embedding: Arc<dyn EmbeddingProvider> = {
         let providers_repo = ProvidersRepository::new(&conn);
         let emb_provider = providers_repo.get_default().ok().flatten().or_else(|| {
-            providers_repo.list().ok().and_then(|ps| ps.into_iter().find(|p| p.enabled))
+            providers_repo
+                .list()
+                .ok()
+                .and_then(|ps| ps.into_iter().find(|p| p.enabled))
         });
 
         match emb_provider {
             Some(p) => {
-                let api_key = providers_repo.get_api_key(&master_key, p.id).ok().flatten().unwrap_or_default();
+                let api_key = providers_repo
+                    .get_api_key(&master_key, p.id)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
                 // Find embedding model for this provider
                 let emb_model: Option<(String, i64)> = conn.query_row(
                     "SELECT model_id, context_window FROM provider_models WHERE provider_id = ?1 AND model_type = 'embedding' LIMIT 1",
@@ -86,16 +93,26 @@ async fn main() -> Result<()> {
                     |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1).unwrap_or(1024))),
                 ).ok();
 
-                let (model_name, dims) = emb_model.unwrap_or_else(|| ("embed-multilingual-v3.0".to_string(), 1024));
-                tracing::info!("embedding: provider='{}' model='{}' dims={}", p.name, model_name, dims);
+                let (model_name, dims) =
+                    emb_model.unwrap_or_else(|| ("embed-multilingual-v3.0".to_string(), 1024));
+                tracing::info!(
+                    "embedding: provider='{}' model='{}' dims={}",
+                    p.name,
+                    model_name,
+                    dims
+                );
 
                 match p.provider_type.as_str() {
-                    "cohere" => {
-                        Arc::new(CohereEmbedding::new(api_key, Some(model_name))) as Arc<dyn EmbeddingProvider>
-                    }
+                    "cohere" => Arc::new(CohereEmbedding::new(api_key, Some(model_name)))
+                        as Arc<dyn EmbeddingProvider>,
                     _ => {
                         let emb_url = format!("{}/v1", p.base_url.trim_end_matches('/'));
-                        Arc::new(OpenAiCompatEmbedding::new(api_key, model_name, emb_url, dims as usize)) as Arc<dyn EmbeddingProvider>
+                        Arc::new(OpenAiCompatEmbedding::new(
+                            api_key,
+                            model_name,
+                            emb_url,
+                            dims as usize,
+                        )) as Arc<dyn EmbeddingProvider>
                     }
                 }
             }
