@@ -3,6 +3,8 @@ package com.brain.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -18,198 +20,242 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.brain.app.ui.AgentChatScreen
-import com.brain.app.ui.ModelEditorScreen
-import com.brain.app.ui.ProviderDetailScreen
-import com.brain.app.ui.ProvidersScreen
-import com.brain.app.ui.SettingsScreen
-import com.brain.app.ui.theme.BrainTheme
-import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.*
+import com.brain.app.data.AgentEvent
+import com.brain.app.data.BrainSettings
+import com.brain.app.features.chat.*
+import com.brain.app.features.settings.SettingsScreen
+import com.brain.app.features.settings.ProvidersScreen
+import com.brain.app.theme.BrainColors
+import com.brain.app.theme.BrainTheme
+import com.brain.app.viewmodel.BrainViewModel
+import com.brain.app.viewmodel.BrainViewModelFactory
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
+        enableEdgeToEdge()
         val settings = BrainSettings(this)
-        val repository = AgentRepository(settings)
 
         setContent {
             BrainTheme {
-                val vm: AgentViewModel = viewModel(
-                    factory = AgentViewModelFactory(application, repository, settings)
-                )
-                var showSettings by remember { mutableStateOf(!settings.isConfigured) }
+                var showSettings by remember { mutableStateOf(false) }
                 var showProviders by remember { mutableStateOf(false) }
-                var providerDetailId by remember { mutableStateOf<Long?>(null) }
-                var providerDetailName by remember { mutableStateOf("") }
-                var modelEditProviderId by remember { mutableStateOf<Long?>(null) }
-                var modelEditId by remember { mutableStateOf("") }
 
                 when {
-                    modelEditProviderId != null -> ModelEditorScreen(
-                        settings = settings,
-                        providerId = modelEditProviderId!!,
-                        modelId = modelEditId,
-                        onBack = { modelEditProviderId = null; modelEditId = "" },
-                    )
-                    providerDetailId != null -> ProviderDetailScreen(
-                        settings = settings,
-                        providerId = providerDetailId!!,
-                        providerName = providerDetailName,
-                        onBack = { providerDetailId = null; providerDetailName = "" },
-                        onModelEdit = { pid, mid -> modelEditProviderId = pid; modelEditId = mid },
-                    )
                     showProviders -> ProvidersScreen(
                         settings = settings,
-                        onBack = { showProviders = false },
-                        onProviderClick = { id, name -> providerDetailId = id; providerDetailName = name },
+                        onBack = { showProviders = false }
                     )
                     showSettings -> SettingsScreen(
                         settings = settings,
                         onBack = { showSettings = false },
-                        onProviders = { showProviders = true },
+                        onProviders = { showProviders = true }
                     )
-                    else -> {
-                        val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-                        val scope = rememberCoroutineScope()
-
-                        ModalNavigationDrawer(
-                            drawerState = drawerState,
-                            drawerContent = {
-                                ModalDrawerSheet(
-                                    modifier = Modifier.width(300.dp),
-                                    drawerContainerColor = Color(0xFF000000)
-                                ) {
-                                    DrawerContent(
-                                        vm = vm,
-                                        onNewChat = { vm.newChat() },
-                                        onSelectChat = { vm.selectChat(it); scope.launch { drawerState.close() } },
-                                        onDeleteChat = { vm.deleteChat(it) },
-                                        onSettings = { showSettings = true }
-                                    )
-                                }
-                            }
-                        ) {
-                            val events by vm.events.collectAsState()
-                            val isRunning by vm.isRunning.collectAsState()
-                            val selectedModel by vm.selectedModel.collectAsState()
-                            val availableModels by vm.availableModels.collectAsState()
-                            val chats by vm.chats.collectAsState()
-                            val currentId by vm.currentChatId.collectAsState()
-                            val currentChat = chats.find { it.id == currentId }
-
-                            AgentChatScreen(
-                                events = events,
-                                isRunning = isRunning,
-                                selectedModel = selectedModel,
-                                chatTitle = currentChat?.title ?: "Новый чат",
-                                availableModels = availableModels,
-                                onSendTask = { task -> vm.sendTask(task) },
-                                onStop = { vm.stopAgent() },
-                                onMenuClick = { scope.launch { drawerState.open() } },
-                                onNewChat = { vm.newChat() },
-                                onSettings = { showSettings = true },
-                                onModelSelected = { vm.selectModel(it) }
-                            )
-                        }
-                    }
+                    else -> BrainApp(settings)
                 }
             }
         }
-    }
-}
-
-class AgentViewModelFactory(
-    private val app: android.app.Application,
-    private val repository: AgentRepository,
-    private val settings: BrainSettings
-) : androidx.lifecycle.ViewModelProvider.Factory {
-    @Suppress("UNCHECKED_CAST")
-    override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
-        return AgentViewModel(app, repository, settings) as T
     }
 }
 
 @Composable
-fun DrawerContent(
-    vm: AgentViewModel,
-    onNewChat: () -> Unit,
-    onSelectChat: (String) -> Unit,
-    onDeleteChat: (String) -> Unit,
-    onSettings: () -> Unit
-) {
-    val chats by vm.chats.collectAsState()
-    val currentId by vm.currentChatId.collectAsState()
+fun BrainApp(settings: BrainSettings) {
+    val factory = remember { BrainViewModelFactory(application, settings) }
+    val vm: BrainViewModel = viewModel(factory = factory)
 
-    Column(modifier = Modifier.fillMaxSize().background(Color(0xFF000000))) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("Brain", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = Color.White)
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                IconButton(onClick = onNewChat, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Default.Add, "Новый чат", modifier = Modifier.size(20.dp))
-                }
-                IconButton(onClick = onSettings, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Default.Settings, "Настройки", modifier = Modifier.size(20.dp))
-                }
-            }
-        }
+    var inputValue by remember { mutableStateOf("") }
+    var showModelSelector by remember { mutableStateOf(false) }
+    var showDrawer by remember { mutableStateOf(false) }
 
-        HorizontalDivider(color = Color(0xFF222222))
+    val events by vm.events.collectAsState()
+    val isRunning by vm.isRunning.collectAsState()
+    val selectedModel by vm.selectedModel.collectAsState()
 
-        val grouped = chats.groupBy { chat ->
-            val cal = Calendar.getInstance().apply { timeInMillis = chat.updatedAt }
-            val now = Calendar.getInstance()
-            when {
-                cal.get(Calendar.YEAR) == now.get(Calendar.YEAR) &&
-                        cal.get(Calendar.DAY_OF_YEAR) == now.get(Calendar.DAY_OF_YEAR) -> "Сегодня"
-                cal.get(Calendar.YEAR) == now.get(Calendar.YEAR) &&
-                        cal.get(Calendar.DAY_OF_YEAR) == now.get(Calendar.DAY_OF_YEAR) - 1 -> "Вчера"
-                else -> SimpleDateFormat("d MMM", Locale("ru")).format(Date(chat.updatedAt))
-            }
-        }
-
-        LazyColumn(modifier = Modifier.weight(1f)) {
-            grouped.forEach { (dateLabel, dayChats) ->
-                item {
-                    Text(
-                        dateLabel, style = MaterialTheme.typography.labelMedium,
-                        color = Color(0xFF666666),
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+    ModalNavigationDrawer(
+        drawerContent = {
+            DrawerContent(
+                onNewChat = { vm.newChat() },
+                onSettings = {
+                    showDrawer = false
+                    showSettings = true
+                },
+                onDismiss = { showDrawer = false }
+            )
+        },
+        gesturesEnabled = showDrawer
+    ) {
+        Scaffold(
+            topBar = {
+                Header(
+                    title = "New chat",
+                    selectedModel = selectedModel,
+                    onTitleChange = { },
+                    onModelClick = { showModelSelector = true },
+                    onMenuClick = { showDrawer = true }
+                )
+            },
+            containerColor = BrainColors.bg000
+        ) { padding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+            ) {
+                if (events.isEmpty() && !isRunning) {
+                    EmptyState(
+                        onStartTask = { task ->
+                            inputValue = ""
+                            vm.sendTask(task)
+                        },
+                        selectedModel = selectedModel,
+                        onModelClick = { showModelSelector = true }
                     )
-                }
-                items(dayChats, key = { it.id }) { chat ->
-                    val isSelected = chat.id == currentId
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 2.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { onSelectChat(chat.id) },
-                        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                        else Color.Transparent
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                chat.title,
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White,
-                                fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
+                } else {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        ChatArea(
+                            events = events,
+                            isRunning = isRunning,
+                            streamingText = "",
+                            modifier = Modifier.weight(1f)
+                        )
+                        InputBox(
+                            value = inputValue,
+                            onValueChange = { inputValue = it },
+                            onSend = {
+                                if (inputValue.isNotBlank()) {
+                                    vm.sendTask(inputValue)
+                                    inputValue = ""
+                                }
+                            },
+                            onStop = { vm.stopAgent() },
+                            isRunning = isRunning,
+                            selectedModel = selectedModel,
+                            onModelClick = { showModelSelector = true }
+                        )
                     }
+                }
+            }
+        }
+    }
+
+    // Model selector dialog
+    if (showModelSelector) {
+        ModelSelector(
+            models = vm.availableModels,
+            selected = selectedModel,
+            onSelect = { model ->
+                vm.selectModel(model)
+                showModelSelector = false
+            },
+            onDismiss = { showModelSelector = false }
+        )
+    }
+}
+
+@Composable
+private fun DrawerContent(
+    onNewChat: () -> Unit,
+    onSettings: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    ModalDrawerSheet(
+        modifier = Modifier.width(280.dp),
+        drawerContainerColor = BrainColors.bg200
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Brain",
+                    color = BrainColors.text100,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Close, null, tint = BrainColors.text300, modifier = Modifier.size(20.dp))
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // New chat button
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable {
+                        onNewChat()
+                        onDismiss()
+                    },
+                shape = RoundedCornerShape(10.dp),
+                color = BrainColors.accentMain100.copy(alpha = 0.15f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(Icons.Default.Add, null, tint = BrainColors.accentMain100, modifier = Modifier.size(20.dp))
+                    Text("New chat", color = BrainColors.accentMain100, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            Text(
+                text = "Recent",
+                color = BrainColors.text400,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.5.sp
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            // Empty state
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "No recent chats",
+                    color = BrainColors.text500,
+                    fontSize = 13.sp
+                )
+            }
+
+            // Settings
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable {
+                        onSettings()
+                        onDismiss()
+                    },
+                shape = RoundedCornerShape(10.dp),
+                color = Color.Transparent
+            ) {
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(Icons.Default.Settings, null, tint = BrainColors.text300, modifier = Modifier.size(20.dp))
+                    Text("Settings", color = BrainColors.text200, fontSize = 14.sp)
                 }
             }
         }
