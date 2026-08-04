@@ -31,6 +31,12 @@ jobs:
           git clone --branch ${{ github.event.inputs.branch || 'main' }} \
             https://github.com/DevEmperor/DictateKeyboard.git /tmp/dictate
 
+      - name: Fetch sherpa-onnx native libs
+        working-directory: /tmp/dictate
+        run: |
+          chmod +x tools/fetch-sherpa-onnx.sh
+          bash tools/fetch-sherpa-onnx.sh
+
       - name: Build DictateKeyboard APK
         working-directory: /tmp/dictate
         run: |
